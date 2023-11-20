@@ -238,6 +238,13 @@ func (be *localBuildExecutor) Execute(ctx context.Context, filePool re_filesyste
 		environmentVariables[environmentVariable.Name] = environmentVariable.Value
 	}
 
+	for _, auxiliaryMetadata := range request.AuxiliaryMetadata {
+		var pb remoteexecution.RequestMetadata
+		if auxiliaryMetadata.UnmarshalTo(&pb) == nil {
+			environmentVariables["ToolInvocationId"] = pb.ToolInvocationId
+		}
+	}
+
 	// Invoke the command.
 	ctxWithTimeout, cancelTimeout := be.clock.NewContextWithTimeout(ctxWithIOError, executionTimeout)
 	runResponse, runErr := be.runner.Run(ctxWithTimeout, &runner_pb.RunRequest{
