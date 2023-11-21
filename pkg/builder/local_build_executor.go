@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	"log"
 	"os"
 	"sync"
 	"time"
@@ -239,11 +240,20 @@ func (be *localBuildExecutor) Execute(ctx context.Context, filePool re_filesyste
 	}
 
 	for _, auxiliaryMetadata := range request.AuxiliaryMetadata {
+		log.Print("About to unmarshal: ")
+		log.Print(auxiliaryMetadata.String())
+
 		var pb remoteexecution.RequestMetadata
-		if auxiliaryMetadata.UnmarshalTo(&pb) == nil {
-			environmentVariables["ToolInvocationId"] = pb.ToolInvocationId
+		var error = auxiliaryMetadata.UnmarshalTo(&pb)
+
+		if error == nil {
+			environmentVariables["TOOL_INVOCATION_ID"] = pb.GetToolInvocationId()
+		} else {
+			log.Print(err)
 		}
 	}
+
+	environmentVariables["FOO"] = "BAR"
 
 	// Invoke the command.
 	ctxWithTimeout, cancelTimeout := be.clock.NewContextWithTimeout(ctxWithIOError, executionTimeout)
