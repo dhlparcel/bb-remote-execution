@@ -15,15 +15,22 @@ import (
 	"github.com/buildbarn/bb-storage/pkg/filesystem/path"
 	"github.com/buildbarn/bb-storage/pkg/util"
 
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-type naiveBuildDirectory struct {
-	filesystem.DirectoryCloser
+type naiveBuildDirectoryOptions struct {
 	directoryFetcher          cas.DirectoryFetcher
 	fileFetcher               cas.FileFetcher
+	fileFetcherSemaphore      *semaphore.Weighted
 	contentAddressableStorage blobstore.BlobAccess
+}
+
+type naiveBuildDirectory struct {
+	filesystem.DirectoryCloser
+	options *naiveBuildDirectoryOptions
 }
 
 // NewNaiveBuildDirectory creates a BuildDirectory that is backed by a
@@ -36,12 +43,15 @@ type naiveBuildDirectory struct {
 // regular local file systems. The downside of such file systems is that
 // we cannot populate them on demand. All of the input files must be
 // present before invoking the build action.
-func NewNaiveBuildDirectory(directory filesystem.DirectoryCloser, directoryFetcher cas.DirectoryFetcher, fileFetcher cas.FileFetcher, contentAddressableStorage blobstore.BlobAccess) BuildDirectory {
+func NewNaiveBuildDirectory(directory filesystem.DirectoryCloser, directoryFetcher cas.DirectoryFetcher, fileFetcher cas.FileFetcher, fileFetcherSemaphore *semaphore.Weighted, contentAddressableStorage blobstore.BlobAccess) BuildDirectory {
 	return &naiveBuildDirectory{
-		DirectoryCloser:           directory,
-		directoryFetcher:          directoryFetcher,
-		fileFetcher:               fileFetcher,
-		contentAddressableStorage: contentAddressableStorage,
+		DirectoryCloser: directory,
+		options: &naiveBuildDirectoryOptions{
+			directoryFetcher:          directoryFetcher,
+			fileFetcher:               fileFetcher,
+			fileFetcherSemaphore:      fileFetcherSemaphore,
+			contentAddressableStorage: contentAddressableStorage,
+		},
 	}
 }
 
@@ -51,10 +61,8 @@ func (d *naiveBuildDirectory) EnterBuildDirectory(name path.Component) (BuildDir
 		return nil, err
 	}
 	return &naiveBuildDirectory{
-		DirectoryCloser:           child,
-		directoryFetcher:          d.directoryFetcher,
-		fileFetcher:               d.fileFetcher,
-		contentAddressableStorage: d.contentAddressableStorage,
+		DirectoryCloser: child,
+		options:         d.options,
 	}, nil
 }
 
@@ -72,11 +80,12 @@ func (d *naiveBuildDirectory) InstallHooks(filePool re_filesystem.FilePool, erro
 	// of I/O errors is performed.
 }
 
-func (d *naiveBuildDirectory) mergeDirectoryContents(ctx context.Context, digest digest.Digest, inputDirectory filesystem.Directory, pathTrace *path.Trace) error {
+func (d *naiveBuildDirectory) mergeDirectoryContents(ctx context.Context, group *errgroup.Group, digest digest.Digest, inputDirectory *filesystem.ReferenceCountedDirectoryCloser, pathTrace *path.Trace) error {
 	// Obtain directory.
-	directory, err := d.directoryFetcher.GetDirectory(ctx, digest)
+	options := d.options
+	directory, err := options.directoryFetcher.GetDirectory(ctx, digest)
 	if err != nil {
-		return util.StatusWrapf(err, "Failed to obtain input directory %#v", pathTrace.String())
+		return util.StatusWrapf(err, "Failed to obtain input directory %#v", pathTrace.GetUNIXString())
 	}
 
 	// Create children.
@@ -89,11 +98,26 @@ func (d *naiveBuildDirectory) mergeDirectoryContents(ctx context.Context, digest
 		childPathTrace := pathTrace.Append(component)
 		childDigest, err := digestFunction.NewDigestFromProto(file.Digest)
 		if err != nil {
-			return util.StatusWrapf(err, "Failed to extract digest for input file %#v", childPathTrace.String())
+			return util.StatusWrapf(err, "Failed to extract digest for input file %#v", childPathTrace.GetUNIXString())
 		}
-		if err := d.fileFetcher.GetFile(ctx, childDigest, inputDirectory, component, file.IsExecutable); err != nil {
-			return util.StatusWrapf(err, "Failed to obtain input file %#v", childPathTrace.String())
+
+		// Download individual input files in parallel.
+		if err := util.AcquireSemaphore(ctx, options.fileFetcherSemaphore, 1); err != nil {
+			return err
 		}
+		downloadDirectory := inputDirectory.Duplicate()
+		group.Go(func() error {
+			errGetFile := options.fileFetcher.GetFile(ctx, childDigest, downloadDirectory, component, file.IsExecutable)
+			errClose := downloadDirectory.Close()
+			options.fileFetcherSemaphore.Release(1)
+			if errGetFile != nil {
+				return util.StatusWrapf(errGetFile, "Failed to obtain input file %#v", childPathTrace.GetUNIXString())
+			}
+			if errClose != nil {
+				return util.StatusWrapf(err, "Failed to close input directory %#v", pathTrace.GetUNIXString())
+			}
+			return nil
+		})
 	}
 	for _, directory := range directory.Directories {
 		component, ok := path.NewComponent(directory.Name)
@@ -103,19 +127,23 @@ func (d *naiveBuildDirectory) mergeDirectoryContents(ctx context.Context, digest
 		childPathTrace := pathTrace.Append(component)
 		childDigest, err := digestFunction.NewDigestFromProto(directory.Digest)
 		if err != nil {
-			return util.StatusWrapf(err, "Failed to extract digest for input directory %#v", childPathTrace.String())
+			return util.StatusWrapf(err, "Failed to extract digest for input directory %#v", childPathTrace.GetUNIXString())
 		}
 		if err := inputDirectory.Mkdir(component, 0o777); err != nil {
-			return util.StatusWrapf(err, "Failed to create input directory %#v", childPathTrace.String())
+			return util.StatusWrapf(err, "Failed to create input directory %#v", childPathTrace.GetUNIXString())
 		}
 		childDirectory, err := inputDirectory.EnterDirectory(component)
 		if err != nil {
-			return util.StatusWrapf(err, "Failed to enter input directory %#v", childPathTrace.String())
+			return util.StatusWrapf(err, "Failed to enter input directory %#v", childPathTrace.GetUNIXString())
 		}
-		err = d.mergeDirectoryContents(ctx, childDigest, childDirectory, childPathTrace)
-		childDirectory.Close()
-		if err != nil {
-			return err
+		refcountedDirectory := filesystem.NewReferenceCountedDirectoryCloser(childDirectory)
+		errMerge := d.mergeDirectoryContents(ctx, group, childDigest, refcountedDirectory, childPathTrace)
+		errClose := refcountedDirectory.Close()
+		if errMerge != nil {
+			return errMerge
+		}
+		if errClose != nil {
+			return util.StatusWrapf(err, "Failed to close input directory %#v", childPathTrace.GetUNIXString())
 		}
 	}
 	for _, symlink := range directory.Symlinks {
@@ -124,18 +152,22 @@ func (d *naiveBuildDirectory) mergeDirectoryContents(ctx context.Context, digest
 			return status.Errorf(codes.InvalidArgument, "Symlink %#v has an invalid name", symlink.Name)
 		}
 		childPathTrace := pathTrace.Append(component)
-		if err := inputDirectory.Symlink(symlink.Target, component); err != nil {
-			return util.StatusWrapf(err, "Failed to create input symlink %#v", childPathTrace.String())
+		if err := inputDirectory.Symlink(path.UNIXFormat.NewParser(symlink.Target), component); err != nil {
+			return util.StatusWrapf(err, "Failed to create input symlink %#v", childPathTrace.GetUNIXString())
 		}
 	}
 	return nil
 }
 
 func (d *naiveBuildDirectory) MergeDirectoryContents(ctx context.Context, errorLogger util.ErrorLogger, digest digest.Digest, monitor access.UnreadDirectoryMonitor) error {
-	return d.mergeDirectoryContents(ctx, digest, d.DirectoryCloser, nil)
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		return d.mergeDirectoryContents(groupCtx, group, digest, filesystem.NewReferenceCountedDirectoryCloser(d.DirectoryCloser), nil)
+	})
+	return group.Wait()
 }
 
-func (d *naiveBuildDirectory) UploadFile(ctx context.Context, name path.Component, digestFunction digest.Function) (digest.Digest, error) {
+func (d *naiveBuildDirectory) UploadFile(ctx context.Context, name path.Component, digestFunction digest.Function, writableFileUploadDelay <-chan struct{}) (digest.Digest, error) {
 	file, err := d.OpenRead(name)
 	if err != nil {
 		return digest.BadDigest, err
@@ -154,7 +186,7 @@ func (d *naiveBuildDirectory) UploadFile(ctx context.Context, name path.Componen
 	// used to compute the digest. This ensures uploads succeed,
 	// even if more data gets appended in the meantime. This is not
 	// uncommon, especially for stdout and stderr logs.
-	if err := d.contentAddressableStorage.Put(
+	if err := d.options.contentAddressableStorage.Put(
 		ctx,
 		blobDigest,
 		buffer.NewCASBufferFromReader(

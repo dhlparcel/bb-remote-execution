@@ -31,6 +31,7 @@ import (
 	"github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/buildbarn/bb-storage/pkg/eviction"
 	"github.com/buildbarn/bb-storage/pkg/filesystem"
+	"github.com/buildbarn/bb-storage/pkg/filesystem/path"
 	"github.com/buildbarn/bb-storage/pkg/global"
 	"github.com/buildbarn/bb-storage/pkg/program"
 	"github.com/buildbarn/bb-storage/pkg/random"
@@ -91,7 +92,6 @@ func main() {
 		}
 		globalContentAddressableStorage = re_blobstore.NewExistencePreconditionBlobAccess(globalContentAddressableStorage)
 
-		var prefetchingDownloadConcurrency *semaphore.Weighted
 		var fileSystemAccessCache blobstore.BlobAccess
 		prefetchingConfiguration := configuration.Prefetching
 		if prefetchingConfiguration != nil {
@@ -105,7 +105,6 @@ func main() {
 				return util.StatusWrap(err, "Failed to create File System Access Cache")
 			}
 			fileSystemAccessCache = info.BlobAccess
-			prefetchingDownloadConcurrency = semaphore.NewWeighted(prefetchingConfiguration.DownloadConcurrency)
 		}
 
 		// Cached read access for Directory objects stored in the
@@ -160,6 +159,12 @@ func main() {
 			}()
 		}
 
+		inputDownloadConcurrency := configuration.InputDownloadConcurrency
+		if inputDownloadConcurrency <= 0 {
+			return status.Errorf(codes.InvalidArgument, "Nonpositive input download concurrency: ", inputDownloadConcurrency)
+		}
+		inputDownloadConcurrencySemaphore := semaphore.NewWeighted(inputDownloadConcurrency)
+
 		outputUploadConcurrency := configuration.OutputUploadConcurrency
 		if outputUploadConcurrency <= 0 {
 			return status.Errorf(codes.InvalidArgument, "Nonpositive output upload concurrency: ", outputUploadConcurrency)
@@ -177,6 +182,7 @@ func main() {
 			var buildDirectoryCleaner cleaner.Cleaner
 			uploadBatchSize := blobstore.RecommendedFindMissingDigestsCount
 			var maximumExecutionTimeoutCompensation time.Duration
+			var maximumWritableFileUploadDelay time.Duration
 			switch backend := buildDirectoryConfiguration.Backend.(type) {
 			case *bb_worker.BuildDirectoryConfiguration_Virtual:
 				var mount virtual_configuration.Mount
@@ -236,10 +242,14 @@ func main() {
 					return util.StatusWrap(err, "Invalid maximum execution timeout compensation")
 				}
 				maximumExecutionTimeoutCompensation = backend.Virtual.MaximumExecutionTimeoutCompensation.AsDuration()
+				if err := backend.Virtual.MaximumWritableFileUploadDelay.CheckValid(); err != nil {
+					return util.StatusWrap(err, "Invalid maximum writable file upload delay")
+				}
+				maximumWritableFileUploadDelay = backend.Virtual.MaximumWritableFileUploadDelay.AsDuration()
 			case *bb_worker.BuildDirectoryConfiguration_Native:
 				// Directory where actual builds take place.
 				nativeConfiguration := backend.Native
-				naiveBuildDirectory, err = filesystem.NewLocalDirectory(nativeConfiguration.BuildDirectoryPath)
+				naiveBuildDirectory, err = filesystem.NewLocalDirectory(path.LocalFormat.NewParser(nativeConfiguration.BuildDirectoryPath))
 				if err != nil {
 					return util.StatusWrapf(err, "Failed to open build directory %v", nativeConfiguration.BuildDirectoryPath)
 				}
@@ -252,12 +262,12 @@ func main() {
 				// TODO: Have a single process-wide hardlinking
 				// cache even if multiple build directories are
 				// used. This increases cache hit rate.
-				cacheDirectory, err := filesystem.NewLocalDirectory(nativeConfiguration.CacheDirectoryPath)
+				cacheDirectory, err := filesystem.NewLocalDirectory(path.LocalFormat.NewParser(nativeConfiguration.CacheDirectoryPath))
 				if err != nil {
-					return util.StatusWrap(err, "Failed to open cache directory")
+					return util.StatusWrapf(err, "Failed to open cache directory %#v", nativeConfiguration.CacheDirectoryPath)
 				}
 				if err := cacheDirectory.RemoveAllChildren(); err != nil {
-					return util.StatusWrap(err, "Failed to clear cache directory")
+					return util.StatusWrapf(err, "Failed to clear cache directory %#v", nativeConfiguration.CacheDirectoryPath)
 				}
 				evictionSet, err := eviction.NewSetFromConfiguration[string](nativeConfiguration.CacheReplacementPolicy)
 				if err != nil {
@@ -286,7 +296,7 @@ func main() {
 			}
 			for _, runnerConfiguration := range buildDirectoryConfiguration.Runners {
 				if runnerConfiguration.Concurrency < 1 {
-					return util.StatusWrap(err, "Runner concurrency must be positive")
+					return status.Error(codes.InvalidArgument, "Runner concurrency must be positive")
 				}
 				concurrencyLength := len(strconv.FormatUint(runnerConfiguration.Concurrency-1, 10))
 
@@ -355,6 +365,7 @@ func main() {
 							naiveBuildDirectory,
 							directoryFetcher,
 							fileFetcher,
+							inputDownloadConcurrencySemaphore,
 							contentAddressableStorageWriter)
 					}
 
@@ -389,16 +400,18 @@ func main() {
 						buildDirectoryCreator,
 						runnerClient,
 						executionTimeoutClock,
+						maximumWritableFileUploadDelay,
 						inputRootCharacterDevices,
 						int(configuration.MaximumMessageSizeBytes),
-						runnerConfiguration.EnvironmentVariables)
+						runnerConfiguration.EnvironmentVariables,
+						configuration.ForceUploadTreesAndDirectories)
 
 					if prefetchingConfiguration != nil {
 						buildExecutor = builder.NewPrefetchingBuildExecutor(
 							buildExecutor,
 							globalContentAddressableStorage,
 							directoryFetcher,
-							prefetchingDownloadConcurrency,
+							inputDownloadConcurrencySemaphore,
 							fileSystemAccessCache,
 							int(configuration.MaximumMessageSizeBytes),
 							int(prefetchingConfiguration.BloomFilterBitsPerPath),

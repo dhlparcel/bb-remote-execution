@@ -66,14 +66,14 @@ func (on *outputNode) createParentDirectories(d ParentPopulatableDirectory, dPat
 	for _, name := range on.getSubdirectoryNames() {
 		childPath := dPath.Append(name)
 		if err := d.Mkdir(name, 0o777); err != nil && !os.IsExist(err) {
-			return util.StatusWrapf(err, "Failed to create output parent directory %#v", childPath.String())
+			return util.StatusWrapf(err, "Failed to create output parent directory %#v", childPath.GetUNIXString())
 		}
 
 		// Recurse if we need to create one or more directories within.
 		if child := on.subdirectories[name]; len(child.subdirectories) > 0 || len(child.directoriesToUpload) > 0 {
 			childDirectory, err := d.EnterParentPopulatableDirectory(name)
 			if err != nil {
-				return util.StatusWrapf(err, "Failed to enter output parent directory %#v", childPath.String())
+				return util.StatusWrapf(err, "Failed to enter output parent directory %#v", childPath.GetUNIXString())
 			}
 			err = child.createParentDirectories(childDirectory, childPath)
 			childDirectory.Close()
@@ -100,7 +100,7 @@ func (on *outputNode) createParentDirectories(d ParentPopulatableDirectory, dPat
 		if _, ok := on.subdirectories[name]; !ok {
 			childPath := dPath.Append(name)
 			if err := d.Mkdir(name, 0o777); err != nil && !os.IsExist(err) {
-				return util.StatusWrapf(err, "Failed to create output directory %#v", childPath.String())
+				return util.StatusWrapf(err, "Failed to create output directory %#v", childPath.GetUNIXString())
 			}
 		}
 	}
@@ -123,10 +123,10 @@ func (on *outputNode) uploadOutputs(s *uploadOutputsState, d UploadableDirectory
 			case filesystem.FileTypeSymlink:
 				s.uploadOutputSymlink(d, component, childPath, &s.actionResult.OutputDirectorySymlinks, paths)
 			default:
-				s.saveError(status.Errorf(codes.InvalidArgument, "Output directory %#v is not a directory or symlink", childPath.String()))
+				s.saveError(status.Errorf(codes.InvalidArgument, "Output directory %#v is not a directory or symlink", childPath.GetUNIXString()))
 			}
 		} else if !os.IsNotExist(err) {
-			s.saveError(util.StatusWrapf(err, "Failed to read attributes of output directory %#v", childPath.String()))
+			s.saveError(util.StatusWrapf(err, "Failed to read attributes of output directory %#v", childPath.GetUNIXString()))
 		}
 	}
 
@@ -142,10 +142,10 @@ func (on *outputNode) uploadOutputs(s *uploadOutputsState, d UploadableDirectory
 			case filesystem.FileTypeSymlink:
 				s.uploadOutputSymlink(d, component, childPath, &s.actionResult.OutputFileSymlinks, paths)
 			default:
-				s.saveError(status.Errorf(codes.InvalidArgument, "Output file %#v is not a regular file or symlink", childPath.String()))
+				s.saveError(status.Errorf(codes.InvalidArgument, "Output file %#v is not a regular file or symlink", childPath.GetUNIXString()))
 			}
 		} else if !os.IsNotExist(err) {
-			s.saveError(util.StatusWrapf(err, "Failed to read attributes of output file %#v", childPath.String()))
+			s.saveError(util.StatusWrapf(err, "Failed to read attributes of output file %#v", childPath.GetUNIXString()))
 		}
 	}
 
@@ -163,10 +163,10 @@ func (on *outputNode) uploadOutputs(s *uploadOutputsState, d UploadableDirectory
 			case filesystem.FileTypeSymlink:
 				s.uploadOutputSymlink(d, component, childPath, &s.actionResult.OutputSymlinks, paths)
 			default:
-				s.saveError(status.Errorf(codes.InvalidArgument, "Output path %#v is not a directory, regular file or symlink", childPath.String()))
+				s.saveError(status.Errorf(codes.InvalidArgument, "Output path %#v is not a directory, regular file or symlink", childPath.GetUNIXString()))
 			}
 		} else if !os.IsNotExist(err) {
-			s.saveError(util.StatusWrapf(err, "Failed to read attributes of output path %#v", childPath.String()))
+			s.saveError(util.StatusWrapf(err, "Failed to read attributes of output path %#v", childPath.GetUNIXString()))
 		}
 	}
 
@@ -178,7 +178,7 @@ func (on *outputNode) uploadOutputs(s *uploadOutputsState, d UploadableDirectory
 			childNode.uploadOutputs(s, childDirectory, childPath)
 			childDirectory.Close()
 		} else if !os.IsNotExist(err) {
-			s.saveError(util.StatusWrapf(err, "Failed to enter output parent directory %#v", childPath.String()))
+			s.saveError(util.StatusWrapf(err, "Failed to enter output parent directory %#v", childPath.GetUNIXString()))
 		}
 	}
 }
@@ -189,9 +189,21 @@ type uploadOutputsState struct {
 	context                   context.Context
 	contentAddressableStorage blobstore.BlobAccess
 	digestFunction            digest.Function
+	writableFileUploadDelay   <-chan struct{}
 	actionResult              *remoteexecution.ActionResult
+	uploadTreesAndDirectories bool
 
 	firstError error
+}
+
+// computeDigest computes the digest of a byte slice, using the digest
+// function that's also used by the client.
+func (s *uploadOutputsState) computeDigest(data []byte) digest.Digest {
+	digestGenerator := s.digestFunction.NewGenerator(int64(len(data)))
+	if _, err := digestGenerator.Write(data); err != nil {
+		panic(err)
+	}
+	return digestGenerator.Sum()
 }
 
 // SaveError preserves errors that occur during uploading. Even when
@@ -209,12 +221,12 @@ func (s *uploadOutputsState) saveError(err error) {
 func (s *uploadOutputsState) uploadOutputDirectoryEntered(d UploadableDirectory, dPath *path.Trace, paths []string) {
 	dState := uploadOutputDirectoryState{
 		uploadOutputsState: s,
-		directoriesSeen:    map[digest.Digest]struct{}{},
+		directoriesSeen:    map[digest.Digest][]byte{},
 	}
-	if rootDirectory, err := dState.uploadDirectory(d, dPath); err == nil {
+	if rootDirectoryDigest, err := dState.uploadDirectory(d, dPath); err == nil {
 		// Approximate the size of the resulting Tree object, so
 		// that we may allocate all space at once.
-		directories := append(dState.directories, rootDirectory)
+		directories := dState.directories
 		maximumTreeSizeBytes := 0
 		for _, directory := range directories {
 			maximumTreeSizeBytes += len(directory)
@@ -234,13 +246,31 @@ func (s *uploadOutputsState) uploadOutputDirectoryEntered(d UploadableDirectory,
 			tag = byte(blobstore.TreeChildrenFieldNumber<<3) | byte(protowire.BytesType)
 		}
 
-		digestGenerator := s.digestFunction.NewGenerator(int64(len(treeData)))
-		if _, err := digestGenerator.Write(treeData); err != nil {
-			panic(err)
+		// Always upload the directory in Tree form, even if the
+		// client did not request it. CompletenessCheckingBlobAccess
+		// depends on it to work efficiently.
+		successfullyUploaded := true
+		treeDigest := s.computeDigest(treeData)
+		if err := s.contentAddressableStorage.Put(s.context, treeDigest, buffer.NewValidatedBufferFromByteSlice(treeData)); err != nil {
+			s.saveError(util.StatusWrapf(err, "Failed to store output directory %#v", dPath.GetUNIXString()))
+			successfullyUploaded = false
 		}
-		treeDigest := digestGenerator.Sum()
 
-		if err := s.contentAddressableStorage.Put(s.context, treeDigest, buffer.NewValidatedBufferFromByteSlice(treeData)); err == nil {
+		// Upload Directory messages if requested by the client.
+		// Only in this case may we set OutputDirectory's
+		// root_directory_digest.
+		var rootDirectoryDigestProto *remoteexecution.Digest
+		if s.uploadTreesAndDirectories {
+			rootDirectoryDigestProto = rootDirectoryDigest.GetProto()
+			for directoryDigest, directory := range dState.directoriesSeen {
+				if err := s.contentAddressableStorage.Put(s.context, directoryDigest, buffer.NewValidatedBufferFromByteSlice(directory)); err != nil {
+					s.saveError(util.StatusWrapf(err, "Failed to store output directory %#v", dPath.GetUNIXString()))
+					successfullyUploaded = false
+				}
+			}
+		}
+
+		if successfullyUploaded {
 			for _, path := range paths {
 				s.actionResult.OutputDirectories = append(
 					s.actionResult.OutputDirectories,
@@ -248,10 +278,9 @@ func (s *uploadOutputsState) uploadOutputDirectoryEntered(d UploadableDirectory,
 						Path:                  path,
 						TreeDigest:            treeDigest.GetProto(),
 						IsTopologicallySorted: true,
+						RootDirectoryDigest:   rootDirectoryDigestProto,
 					})
 			}
-		} else {
-			s.saveError(util.StatusWrapf(err, "Failed to store output directory %#v", dPath.String()))
 		}
 	} else {
 		s.saveError(err)
@@ -266,13 +295,13 @@ func (s *uploadOutputsState) uploadOutputDirectory(d UploadableDirectory, name p
 		s.uploadOutputDirectoryEntered(childDirectory, childPath, paths)
 		childDirectory.Close()
 	} else {
-		s.saveError(util.StatusWrapf(err, "Failed to enter output directory %#v", childPath.String()))
+		s.saveError(util.StatusWrapf(err, "Failed to enter output directory %#v", childPath.GetUNIXString()))
 	}
 }
 
 // UploadOutputDirectory is called to upload a single output file.
 func (s *uploadOutputsState) uploadOutputFile(d UploadableDirectory, name path.Component, childPath *path.Trace, isExecutable bool, paths []string) {
-	if digest, err := d.UploadFile(s.context, name, s.digestFunction); err == nil {
+	if digest, err := d.UploadFile(s.context, name, s.digestFunction, s.writableFileUploadDelay); err == nil {
 		for _, path := range paths {
 			s.actionResult.OutputFiles = append(
 				s.actionResult.OutputFiles,
@@ -283,24 +312,30 @@ func (s *uploadOutputsState) uploadOutputFile(d UploadableDirectory, name path.C
 				})
 		}
 	} else {
-		s.saveError(util.StatusWrapf(err, "Failed to store output file %#v", childPath.String()))
+		s.saveError(util.StatusWrapf(err, "Failed to store output file %#v", childPath.GetUNIXString()))
 	}
 }
 
 // UploadOutputDirectory is called to read the attributes of a single
 // output symlink.
 func (s *uploadOutputsState) uploadOutputSymlink(d UploadableDirectory, name path.Component, childPath *path.Trace, outputSymlinks *[]*remoteexecution.OutputSymlink, paths []string) {
-	if target, err := d.Readlink(name); err == nil {
-		for _, path := range paths {
-			*outputSymlinks = append(
-				*outputSymlinks,
-				&remoteexecution.OutputSymlink{
-					Path:   path,
-					Target: target,
-				})
+	if targetParser, err := d.Readlink(name); err == nil {
+		targetPath, scopeWalker := path.EmptyBuilder.Join(path.VoidScopeWalker)
+		if path.Resolve(targetParser, scopeWalker); err == nil {
+			target := targetPath.GetUNIXString()
+			for _, path := range paths {
+				*outputSymlinks = append(
+					*outputSymlinks,
+					&remoteexecution.OutputSymlink{
+						Path:   path,
+						Target: target,
+					})
+			}
+		} else {
+			s.saveError(util.StatusWrapf(err, "Failed to resolve target of output symlink %#v", childPath.GetUNIXString()))
 		}
 	} else {
-		s.saveError(util.StatusWrapf(err, "Failed to read output symlink %#v", childPath.String()))
+		s.saveError(util.StatusWrapf(err, "Failed to read output symlink %#v", childPath.GetUNIXString()))
 	}
 }
 
@@ -310,16 +345,16 @@ type uploadOutputDirectoryState struct {
 	*uploadOutputsState
 
 	directories     [][]byte
-	directoriesSeen map[digest.Digest]struct{}
+	directoriesSeen map[digest.Digest][]byte
 }
 
 // UploadDirectory is called to upload a single directory. Elements in
 // the directory are stored in a remoteexecution.Directory, so that they
 // can be placed in a remoteexecution.Tree.
-func (s *uploadOutputDirectoryState) uploadDirectory(d UploadableDirectory, dPath *path.Trace) ([]byte, error) {
+func (s *uploadOutputDirectoryState) uploadDirectory(d UploadableDirectory, dPath *path.Trace) (digest.Digest, error) {
 	files, err := d.ReadDir()
 	if err != nil {
-		return nil, util.StatusWrapf(err, "Failed to read output directory %#v", dPath.String())
+		return digest.BadDigest, util.StatusWrapf(err, "Failed to read output directory %#v", dPath.GetUNIXString())
 	}
 
 	var directory remoteexecution.Directory
@@ -328,38 +363,20 @@ func (s *uploadOutputDirectoryState) uploadDirectory(d UploadableDirectory, dPat
 		childPath := dPath.Append(name)
 		switch fileType := file.Type(); fileType {
 		case filesystem.FileTypeRegularFile:
-			if childDigest, err := d.UploadFile(s.context, name, s.digestFunction); err == nil {
+			if childDigest, err := d.UploadFile(s.context, name, s.digestFunction, s.writableFileUploadDelay); err == nil {
 				directory.Files = append(directory.Files, &remoteexecution.FileNode{
 					Name:         name.String(),
 					Digest:       childDigest.GetProto(),
 					IsExecutable: file.IsExecutable(),
 				})
 			} else {
-				s.saveError(util.StatusWrapf(err, "Failed to store output file %#v", childPath.String()))
+				s.saveError(util.StatusWrapf(err, "Failed to store output file %#v", childPath.GetUNIXString()))
 			}
 		case filesystem.FileTypeDirectory:
 			if childDirectory, err := d.EnterUploadableDirectory(name); err == nil {
-				childData, err := s.uploadDirectory(childDirectory, dPath)
+				childDigest, err := s.uploadDirectory(childDirectory, dPath)
 				childDirectory.Close()
 				if err == nil {
-					// Compute the digest of the child
-					// directory, so that it may be
-					// referenced by the parent.
-					digestGenerator := s.digestFunction.NewGenerator(int64(len(childData)))
-					if _, err := digestGenerator.Write(childData); err != nil {
-						panic(err)
-					}
-					childDigest := digestGenerator.Sum()
-
-					// There is no need to make the
-					// directory part of the Tree if we
-					// have seen an identical directory
-					// previously.
-					if _, ok := s.directoriesSeen[childDigest]; !ok {
-						s.directories = append(s.directories, childData)
-						s.directoriesSeen[childDigest] = struct{}{}
-					}
-
 					directory.Directories = append(directory.Directories, &remoteexecution.DirectoryNode{
 						Name:   name.String(),
 						Digest: childDigest.GetProto(),
@@ -368,25 +385,38 @@ func (s *uploadOutputDirectoryState) uploadDirectory(d UploadableDirectory, dPat
 					s.saveError(err)
 				}
 			} else {
-				s.saveError(util.StatusWrapf(err, "Failed to enter output directory %#v", childPath.String()))
+				s.saveError(util.StatusWrapf(err, "Failed to enter output directory %#v", childPath.GetUNIXString()))
 			}
 		case filesystem.FileTypeSymlink:
-			if target, err := d.Readlink(name); err == nil {
-				directory.Symlinks = append(directory.Symlinks, &remoteexecution.SymlinkNode{
-					Name:   name.String(),
-					Target: target,
-				})
+			if targetParser, err := d.Readlink(name); err == nil {
+				targetPath, scopeWalker := path.EmptyBuilder.Join(path.VoidScopeWalker)
+				if path.Resolve(targetParser, scopeWalker); err == nil {
+					directory.Symlinks = append(directory.Symlinks, &remoteexecution.SymlinkNode{
+						Name:   name.String(),
+						Target: targetPath.GetUNIXString(),
+					})
+				} else {
+					s.saveError(util.StatusWrapf(err, "Failed to resolve target of output symlink %#v", childPath.GetUNIXString()))
+				}
 			} else {
-				s.saveError(util.StatusWrapf(err, "Failed to read output symlink %#v", childPath.String()))
+				s.saveError(util.StatusWrapf(err, "Failed to read output symlink %#v", childPath.GetUNIXString()))
 			}
 		}
 	}
 
 	data, err := proto.Marshal(&directory)
 	if err != nil {
-		return nil, util.StatusWrapf(err, "Failed to marshal output directory %#v", dPath.String())
+		return digest.BadDigest, util.StatusWrapf(err, "Failed to marshal output directory %#v", dPath.GetUNIXString())
 	}
-	return data, nil
+
+	// There is no need to make the directory part of the Tree if we
+	// have seen an identical directory previously.
+	digest := s.computeDigest(data)
+	if _, ok := s.directoriesSeen[digest]; !ok {
+		s.directories = append(s.directories, data)
+		s.directoriesSeen[digest] = data
+	}
+	return digest, nil
 }
 
 // outputNodePath is an implementation of path.ComponentWalker that is
@@ -430,8 +460,9 @@ func (onp *outputNodePath) OnUp() (path.ComponentWalker, error) {
 // outputs prior to execution, and to upload outputs into the CAS after
 // execution.
 type OutputHierarchy struct {
-	root          outputNode
-	rootsToUpload []string
+	root                      outputNode
+	rootsToUpload             []string
+	uploadTreesAndDirectories bool
 }
 
 // NewOutputHierarchy creates a new OutputHierarchy that uses the
@@ -439,12 +470,14 @@ type OutputHierarchy struct {
 // message.
 func NewOutputHierarchy(command *remoteexecution.Command) (*OutputHierarchy, error) {
 	var workingDirectory outputNodePath
-	if err := path.Resolve(command.WorkingDirectory, path.NewRelativeScopeWalker(&workingDirectory)); err != nil {
+	if err := path.Resolve(path.UNIXFormat.NewParser(command.WorkingDirectory), path.NewRelativeScopeWalker(&workingDirectory)); err != nil {
 		return nil, util.StatusWrap(err, "Invalid working directory")
 	}
 
 	oh := &OutputHierarchy{
 		root: *newOutputDirectory(),
+		uploadTreesAndDirectories: command.OutputDirectoryFormat == remoteexecution.Command_DIRECTORY_ONLY ||
+			command.OutputDirectoryFormat == remoteexecution.Command_TREE_AND_DIRECTORY,
 	}
 
 	if len(command.OutputPaths) == 0 {
@@ -489,7 +522,7 @@ func (oh *OutputHierarchy) lookup(workingDirectory outputNodePath, targetPath st
 	outputPath := outputNodePath{
 		components: append([]path.Component(nil), workingDirectory.components...),
 	}
-	if err := path.Resolve(targetPath, path.NewRelativeScopeWalker(&outputPath)); err != nil {
+	if err := path.Resolve(path.UNIXFormat.NewParser(targetPath), path.NewRelativeScopeWalker(&outputPath)); err != nil {
 		return nil, nil, err
 	}
 
@@ -530,12 +563,14 @@ func (oh *OutputHierarchy) CreateParentDirectories(d ParentPopulatableDirectory)
 
 // UploadOutputs uploads outputs of the build action into the CAS. This
 // function is called after executing the build action.
-func (oh *OutputHierarchy) UploadOutputs(ctx context.Context, d UploadableDirectory, contentAddressableStorage blobstore.BlobAccess, digestFunction digest.Function, actionResult *remoteexecution.ActionResult) error {
+func (oh *OutputHierarchy) UploadOutputs(ctx context.Context, d UploadableDirectory, contentAddressableStorage blobstore.BlobAccess, digestFunction digest.Function, writableFileUploadDelay <-chan struct{}, actionResult *remoteexecution.ActionResult, forceUploadTreesAndDirectories bool) error {
 	s := uploadOutputsState{
 		context:                   ctx,
 		contentAddressableStorage: contentAddressableStorage,
 		digestFunction:            digestFunction,
+		writableFileUploadDelay:   writableFileUploadDelay,
 		actionResult:              actionResult,
+		uploadTreesAndDirectories: oh.uploadTreesAndDirectories || forceUploadTreesAndDirectories,
 	}
 
 	if len(oh.rootsToUpload) > 0 {

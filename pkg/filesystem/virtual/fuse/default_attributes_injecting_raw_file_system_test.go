@@ -1,5 +1,5 @@
-//go:build darwin || linux
-// +build darwin linux
+//go:build linux
+// +build linux
 
 package fuse_test
 
@@ -9,9 +9,10 @@ import (
 
 	"github.com/buildbarn/bb-remote-execution/internal/mock"
 	"github.com/buildbarn/bb-remote-execution/pkg/filesystem/virtual/fuse"
-	"github.com/golang/mock/gomock"
 	go_fuse "github.com/hanwen/go-fuse/v2/fuse"
 	"github.com/stretchr/testify/require"
+
+	"go.uber.org/mock/gomock"
 )
 
 func TestDefaultAttributesInjectingRawFileSystem(t *testing.T) {

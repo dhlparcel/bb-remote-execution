@@ -31,7 +31,7 @@ func main() {
 		}
 		var configuration bb_runner.ApplicationConfiguration
 		if err := util.UnmarshalConfigurationFromFile(os.Args[1], &configuration); err != nil {
-			return util.StatusWrapf(err, "Failed to read configuration from %s", os.Args[1])
+			return util.StatusWrapf(err, "Failed to read configuration from %#v", os.Args[1])
 		}
 		lifecycleState, grpcClientFactory, err := global.ApplyConfiguration(configuration.Global)
 		if err != nil {
@@ -39,13 +39,12 @@ func main() {
 		}
 
 		buildDirectoryPath, scopeWalker := path.EmptyBuilder.Join(path.NewAbsoluteScopeWalker(path.VoidComponentWalker))
-		if err := path.Resolve(configuration.BuildDirectoryPath, scopeWalker); err != nil {
-			return util.StatusWrap(err, "Failed to resolve build directory")
+		if err := path.Resolve(path.LocalFormat.NewParser(configuration.BuildDirectoryPath), scopeWalker); err != nil {
+			return util.StatusWrapf(err, "Failed to resolve build directory %#v", configuration.BuildDirectoryPath)
 		}
-		buildDirectoryPathString := buildDirectoryPath.String()
 		buildDirectory := re_filesystem.NewLazyDirectory(
 			func() (filesystem.DirectoryCloser, error) {
-				return filesystem.NewLocalDirectory(buildDirectoryPathString)
+				return filesystem.NewLocalDirectory(buildDirectoryPath)
 			})
 
 		sysProcAttr, processTableCleaningUserID, err := credentials.GetSysProcAttrFromConfiguration(configuration.RunCommandsAs)
@@ -109,7 +108,7 @@ func main() {
 		// build actions aren't visible to successive actions. This also
 		// prevents systems from running out of disk space.
 		for _, d := range configuration.CleanTemporaryDirectories {
-			directory, err := filesystem.NewLocalDirectory(d)
+			directory, err := filesystem.NewLocalDirectory(path.LocalFormat.NewParser(d))
 			if err != nil {
 				return util.StatusWrapf(err, "Failed to open temporary directory %#v", d)
 			}

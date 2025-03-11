@@ -1,6 +1,6 @@
+load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//proto:def.bzl", "go_proto_library")
 load("@rules_proto//proto:defs.bzl", "proto_library")
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
-load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
 
 proto_library(
     name = "completedactionlogger_proto",
@@ -8,20 +8,23 @@ proto_library(
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/proto/cas:cas_proto",
-        "@com_github_bazelbuild_remote_apis//build/bazel/remote/execution/v2:remote_execution_proto",
-        "@com_google_protobuf//:empty_proto",
+        "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_proto",
+        "@protobuf//:empty_proto",
     ],
 )
 
 go_proto_library(
     name = "completedactionlogger_go_proto",
-    compilers = ["@io_bazel_rules_go//proto:go_grpc"],
+    compilers = [
+        "@rules_go//proto:go_proto",
+        "@rules_go//proto:go_grpc_v2",
+    ],
     importpath = "github.com/buildbarn/bb-remote-execution/pkg/proto/completedactionlogger",
     proto = ":completedactionlogger_proto",
     visibility = ["//visibility:public"],
     deps = [
         "//pkg/proto/cas",
-        "@com_github_bazelbuild_remote_apis//build/bazel/remote/execution/v2:execution",
+        "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
     ],
 )
 

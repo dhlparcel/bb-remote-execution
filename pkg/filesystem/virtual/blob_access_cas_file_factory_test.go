@@ -7,14 +7,18 @@ import (
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
 	"github.com/buildbarn/bb-remote-execution/internal/mock"
 	"github.com/buildbarn/bb-remote-execution/pkg/filesystem/virtual"
+	"github.com/buildbarn/bb-remote-execution/pkg/proto/bazeloutputservice"
+	bazeloutputservicerev2 "github.com/buildbarn/bb-remote-execution/pkg/proto/bazeloutputservice/rev2"
 	"github.com/buildbarn/bb-remote-execution/pkg/proto/outputpathpersistency"
-	"github.com/buildbarn/bb-remote-execution/pkg/proto/remoteoutputservice"
 	"github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/buildbarn/bb-storage/pkg/filesystem"
 	"github.com/buildbarn/bb-storage/pkg/filesystem/path"
 	"github.com/buildbarn/bb-storage/pkg/testutil"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
+
+	"google.golang.org/protobuf/types/known/anypb"
+
+	"go.uber.org/mock/gomock"
 )
 
 const blobAccessCASFileFactoryAttributesMask = virtual.AttributesMaskChangeID |
@@ -95,10 +99,12 @@ func TestBlobAccessCASFileFactoryGetContainingDigests(t *testing.T) {
 			SetSizeBytes(400),
 		&out)
 
-	require.Equal(t, digest.ToSingletonSet(), f.GetContainingDigests())
+	p := virtual.ApplyGetContainingDigests{}
+	require.True(t, f.VirtualApply(&p))
+	require.Equal(t, digest.ToSingletonSet(), p.ContainingDigests)
 }
 
-func TestBlobAccessCASFileFactoryGetOutputServiceFileStatus(t *testing.T) {
+func TestBlobAccessCASFileFactoryGetBazelOutputServiceStat(t *testing.T) {
 	ctrl, ctx := gomock.WithContext(context.Background(), t)
 
 	contentAddressableStorage := mock.NewMockBlobAccess(ctrl)
@@ -121,32 +127,29 @@ func TestBlobAccessCASFileFactoryGetOutputServiceFileStatus(t *testing.T) {
 			SetSizeBytes(123),
 		&out)
 
-	// When the provided digest.Function is nil, we should only
-	// report that this is a file.
-	fileStatus, err := f.GetOutputServiceFileStatus(nil)
-	require.NoError(t, err)
-	testutil.RequireEqualProto(t, &remoteoutputservice.FileStatus{
-		FileType: &remoteoutputservice.FileStatus_File_{
-			File: &remoteoutputservice.FileStatus_File{},
-		},
-	}, fileStatus)
-
-	// When the provided digest.Function is set, we should return
-	// the digest of the file as well. There is no need to perform
-	// any I/O, as the digest is already embedded in the file.
+	// We should return the digest of the file as well. There is no
+	// need to perform any I/O, as the digest is already embedded in
+	// the file.
 	digestFunction := digest.GetDigestFunction()
-	fileStatus, err = f.GetOutputServiceFileStatus(&digestFunction)
+	p := virtual.ApplyGetBazelOutputServiceStat{
+		DigestFunction: &digestFunction,
+	}
+	require.True(t, f.VirtualApply(&p))
+	require.NoError(t, p.Err)
+	locator, err := anypb.New(&bazeloutputservicerev2.FileArtifactLocator{
+		Digest: &remoteexecution.Digest{
+			Hash:      "8b1a9953c4611296a827abf8c47804d7",
+			SizeBytes: 123,
+		},
+	})
 	require.NoError(t, err)
-	testutil.RequireEqualProto(t, &remoteoutputservice.FileStatus{
-		FileType: &remoteoutputservice.FileStatus_File_{
-			File: &remoteoutputservice.FileStatus_File{
-				Digest: &remoteexecution.Digest{
-					Hash:      "8b1a9953c4611296a827abf8c47804d7",
-					SizeBytes: 123,
-				},
+	testutil.RequireEqualProto(t, &bazeloutputservice.BatchStatResponse_Stat{
+		Type: &bazeloutputservice.BatchStatResponse_Stat_File_{
+			File: &bazeloutputservice.BatchStatResponse_Stat_File{
+				Locator: locator,
 			},
 		},
-	}, fileStatus)
+	}, p.Stat)
 }
 
 func TestBlobAccessCASFileFactoryAppendOutputPathPersistencyDirectoryNode(t *testing.T) {
@@ -186,8 +189,14 @@ func TestBlobAccessCASFileFactoryAppendOutputPathPersistencyDirectoryNode(t *tes
 		&out2)
 
 	var directory outputpathpersistency.Directory
-	f1.AppendOutputPathPersistencyDirectoryNode(&directory, path.MustNewComponent("hello"))
-	f2.AppendOutputPathPersistencyDirectoryNode(&directory, path.MustNewComponent("world"))
+	require.True(t, f1.VirtualApply(&virtual.ApplyAppendOutputPathPersistencyDirectoryNode{
+		Directory: &directory,
+		Name:      path.MustNewComponent("hello"),
+	}))
+	require.True(t, f2.VirtualApply(&virtual.ApplyAppendOutputPathPersistencyDirectoryNode{
+		Directory: &directory,
+		Name:      path.MustNewComponent("world"),
+	}))
 	testutil.RequireEqualProto(t, &outputpathpersistency.Directory{
 		Files: []*remoteexecution.FileNode{
 			{

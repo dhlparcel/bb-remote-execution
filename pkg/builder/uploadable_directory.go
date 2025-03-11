@@ -18,8 +18,14 @@ type UploadableDirectory interface {
 	EnterUploadableDirectory(name path.Component) (UploadableDirectory, error)
 	Lstat(name path.Component) (filesystem.FileInfo, error)
 	ReadDir() ([]filesystem.FileInfo, error)
-	Readlink(name path.Component) (string, error)
+	Readlink(name path.Component) (path.Parser, error)
 
 	// Upload a file into the Content Addressable Storage.
-	UploadFile(ctx context.Context, name path.Component, digestFunction digest.Function) (digest.Digest, error)
+	//
+	// Implementations that are capable of detecting that files
+	// remain opened for writing may block until they are closed. To
+	// ensure this does not end up blocking indefinitely, a channel
+	// is provided that gets closed after a configured amount of
+	// time. This channel is also closed when the Context is done.
+	UploadFile(ctx context.Context, name path.Component, digestFunction digest.Function, writableFileUploadDelay <-chan struct{}) (digest.Digest, error)
 }

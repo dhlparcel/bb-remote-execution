@@ -35,15 +35,15 @@ func NewSharedBuildDirectoryCreator(base BuildDirectoryCreator, nextParallelActi
 	}
 }
 
-func (dc *sharedBuildDirectoryCreator) GetBuildDirectory(ctx context.Context, actionDigest digest.Digest, mayRunInParallel bool) (BuildDirectory, *path.Trace, error) {
-	parentDirectory, parentDirectoryPath, err := dc.base.GetBuildDirectory(ctx, actionDigest, mayRunInParallel)
+func (dc *sharedBuildDirectoryCreator) GetBuildDirectory(ctx context.Context, actionDigestIfNotRunInParallel *digest.Digest) (BuildDirectory, *path.Trace, error) {
+	parentDirectory, parentDirectoryPath, err := dc.base.GetBuildDirectory(ctx, actionDigestIfNotRunInParallel)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// Determine the name of the subdirectory.
 	var name string
-	if mayRunInParallel {
+	if actionDigestIfNotRunInParallel == nil {
 		// Multiple instances of this action may run in
 		// parallel, as the scheduler is not permitted to
 		// deduplicate them. This is likely caused by the
@@ -67,7 +67,7 @@ func (dc *sharedBuildDirectoryCreator) GetBuildDirectory(ctx context.Context, ac
 		// sockaddr_un::sun_path size limits for stronger digest
 		// functions. 16 characters is more than sufficient to
 		// prevent collisions.
-		name = actionDigest.GetHashString()[:16]
+		name = actionDigestIfNotRunInParallel.GetHashString()[:16]
 	}
 
 	// Create the subdirectory.
@@ -75,22 +75,22 @@ func (dc *sharedBuildDirectoryCreator) GetBuildDirectory(ctx context.Context, ac
 	childDirectoryPath := parentDirectoryPath.Append(childDirectoryName)
 	if err := parentDirectory.Mkdir(childDirectoryName, 0o777); err != nil {
 		parentDirectory.Close()
-		return nil, nil, util.StatusWrapfWithCode(err, codes.Internal, "Failed to create build directory %#v", childDirectoryPath.String())
+		return nil, nil, util.StatusWrapfWithCode(err, codes.Internal, "Failed to create build directory %#v", childDirectoryPath.GetUNIXString())
 	}
 	childDirectory, err := parentDirectory.EnterBuildDirectory(childDirectoryName)
 	if err != nil {
 		if err := parentDirectory.Remove(childDirectoryName); err != nil {
-			log.Printf("Failed to remove action digest build directory %#v upon failure to enter: %s", childDirectoryPath.String(), err)
+			log.Printf("Failed to remove action digest build directory %#v upon failure to enter: %s", childDirectoryPath.GetUNIXString(), err)
 		}
 		parentDirectory.Close()
-		return nil, nil, util.StatusWrapfWithCode(err, codes.Internal, "Failed to enter build directory %#v", childDirectoryPath.String())
+		return nil, nil, util.StatusWrapfWithCode(err, codes.Internal, "Failed to enter build directory %#v", childDirectoryPath.GetUNIXString())
 	}
 
 	return &sharedBuildDirectory{
 		BuildDirectory:     childDirectory,
 		parentDirectory:    parentDirectory,
 		childDirectoryName: childDirectoryName,
-		childDirectoryPath: childDirectoryPath.String(),
+		childDirectoryPath: childDirectoryPath.GetUNIXString(),
 	}, childDirectoryPath, nil
 }
 

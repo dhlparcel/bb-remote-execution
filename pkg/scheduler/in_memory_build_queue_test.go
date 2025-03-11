@@ -21,7 +21,6 @@ import (
 	"github.com/buildbarn/bb-storage/pkg/clock"
 	"github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/buildbarn/bb-storage/pkg/testutil"
-	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
@@ -37,6 +36,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
+
+	"go.uber.org/mock/gomock"
 )
 
 var buildQueueConfigurationForTesting = scheduler.InMemoryBuildQueueConfiguration{
@@ -285,6 +286,7 @@ func TestInMemoryBuildQueuePurgeStaleWorkersAndQueues(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, update, &longrunningpb.Operation{
@@ -346,6 +348,7 @@ func TestInMemoryBuildQueuePurgeStaleWorkersAndQueues(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	executingMessage := &longrunningpb.Operation{
@@ -379,6 +382,7 @@ func TestInMemoryBuildQueuePurgeStaleWorkersAndQueues(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	executeResponse, err := anypb.New(&remoteexecution.ExecuteResponse{
@@ -441,6 +445,7 @@ func TestInMemoryBuildQueuePurgeStaleWorkersAndQueues(t *testing.T) {
 				Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 				SizeBytes: 123,
 			},
+			DigestFunction: remoteexecution.DigestFunction_SHA1,
 		})
 		require.NoError(t, err)
 		testutil.RequireEqualProto(t, &longrunningpb.Operation{
@@ -485,6 +490,7 @@ func TestInMemoryBuildQueuePurgeStaleWorkersAndQueues(t *testing.T) {
 				Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 				SizeBytes: 123,
 			},
+			DigestFunction: remoteexecution.DigestFunction_SHA1,
 		})
 		require.NoError(t, err)
 		executeResponse, err = anypb.New(&remoteexecution.ExecuteResponse{
@@ -585,6 +591,7 @@ func TestInMemoryBuildQueuePurgeStaleOperations(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, update, &longrunningpb.Operation{
@@ -624,6 +631,7 @@ func TestInMemoryBuildQueuePurgeStaleOperations(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, update, &longrunningpb.Operation{
@@ -650,6 +658,7 @@ func TestInMemoryBuildQueuePurgeStaleOperations(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, update, &longrunningpb.Operation{
@@ -837,6 +846,7 @@ func TestInMemoryBuildQueueCrashLoopingWorker(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, update, &longrunningpb.Operation{
@@ -904,6 +914,7 @@ func TestInMemoryBuildQueueCrashLoopingWorker(t *testing.T) {
 					Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 					SizeBytes: 123,
 				},
+				DigestFunction: remoteexecution.DigestFunction_SHA1,
 			})
 			testutil.RequireEqualProto(t, &longrunningpb.Operation{
 				Name:     "36ebab65-3c4f-4faf-818b-2eabb4cd1b02",
@@ -959,6 +970,7 @@ func TestInMemoryBuildQueueCrashLoopingWorker(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	executeResponse, err := anypb.New(&remoteexecution.ExecuteResponse{
@@ -1058,6 +1070,7 @@ func TestInMemoryBuildQueueKillOperationsOperationName(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, update, &longrunningpb.Operation{
@@ -1115,6 +1128,7 @@ func TestInMemoryBuildQueueKillOperationsOperationName(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, &longrunningpb.Operation{
@@ -1144,6 +1158,7 @@ func TestInMemoryBuildQueueKillOperationsOperationName(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	executeResponse, err := anypb.New(&remoteexecution.ExecuteResponse{
@@ -1295,6 +1310,7 @@ func TestInMemoryBuildQueueKillOperationsSizeClassQueueWithoutWorkers(t *testing
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, update, &longrunningpb.Operation{
@@ -1354,6 +1370,7 @@ func TestInMemoryBuildQueueKillOperationsSizeClassQueueWithoutWorkers(t *testing
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	executeResponse, err := anypb.New(&remoteexecution.ExecuteResponse{
@@ -1614,6 +1631,7 @@ func TestInMemoryBuildQueueDrainedWorker(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, update, &longrunningpb.Operation{
@@ -1720,6 +1738,7 @@ func TestInMemoryBuildQueueDrainedWorker(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, &longrunningpb.Operation{
@@ -1872,6 +1891,7 @@ func TestInMemoryBuildQueueInvocationFairness(t *testing.T) {
 				Hash:      p.actionHash,
 				SizeBytes: 123,
 			},
+			DigestFunction: remoteexecution.DigestFunction_MD5,
 		})
 		require.NoError(t, err)
 		testutil.RequireEqualProto(t, update, &longrunningpb.Operation{
@@ -2010,6 +2030,7 @@ func TestInMemoryBuildQueueInvocationFairness(t *testing.T) {
 				Hash:      p.actionHash,
 				SizeBytes: 123,
 			},
+			DigestFunction: remoteexecution.DigestFunction_MD5,
 		})
 		require.NoError(t, err)
 		testutil.RequireEqualProto(t, &longrunningpb.Operation{
@@ -2101,6 +2122,7 @@ func TestInMemoryBuildQueueInvocationFairness(t *testing.T) {
 				Hash:      p.actionHash,
 				SizeBytes: 123,
 			},
+			DigestFunction: remoteexecution.DigestFunction_MD5,
 		})
 		require.NoError(t, err)
 		executeResponse, err := anypb.New(&remoteexecution.ExecuteResponse{
@@ -2250,6 +2272,7 @@ func TestInMemoryBuildQueueInFlightDeduplicationAbandonQueued(t *testing.T) {
 				Hash:      "fc96ea0eee854b45950d3a7448332445730886691b992cb7917da0853664f7c2",
 				SizeBytes: 123,
 			},
+			DigestFunction: remoteexecution.DigestFunction_SHA256,
 		})
 		require.NoError(t, err)
 		testutil.RequireEqualProto(t, &longrunningpb.Operation{
@@ -2441,6 +2464,7 @@ func TestInMemoryBuildQueueInFlightDeduplicationAbandonExecuting(t *testing.T) {
 				Hash:      "fc96ea0eee854b45950d3a7448332445730886691b992cb7917da0853664f7c2",
 				SizeBytes: 123,
 			},
+			DigestFunction: remoteexecution.DigestFunction_SHA256,
 		})
 		require.NoError(t, err)
 		testutil.RequireEqualProto(t, &longrunningpb.Operation{
@@ -2629,6 +2653,7 @@ func TestInMemoryBuildQueuePreferBeingIdle(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, &longrunningpb.Operation{
@@ -2663,6 +2688,7 @@ func TestInMemoryBuildQueuePreferBeingIdle(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, &longrunningpb.Operation{
@@ -2750,6 +2776,7 @@ func TestInMemoryBuildQueuePreferBeingIdle(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	executeResponse, err := anypb.New(&remoteexecution.ExecuteResponse{
@@ -2792,7 +2819,7 @@ func TestInMemoryBuildQueueMultipleSizeClasses(t *testing.T) {
 		/* workerInvocationStickinessLimits = */ nil,
 		/* maximumQueuedBackgroundLearningOperations = */ 0,
 		/* backgroundLearningOperationPriority = */ 0,
-		/* maximumSizeClass = */ 8))
+		/* sizeClasses = */ []uint32{8}))
 
 	// Workers with a higher size class should be rejected, as no
 	// requests will end up getting sent to them.
@@ -2890,6 +2917,7 @@ func TestInMemoryBuildQueueMultipleSizeClasses(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, update, &longrunningpb.Operation{
@@ -2947,6 +2975,7 @@ func TestInMemoryBuildQueueMultipleSizeClasses(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, &longrunningpb.Operation{
@@ -3009,6 +3038,7 @@ func TestInMemoryBuildQueueMultipleSizeClasses(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, update, &longrunningpb.Operation{
@@ -3068,6 +3098,7 @@ func TestInMemoryBuildQueueMultipleSizeClasses(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, &longrunningpb.Operation{
@@ -3128,6 +3159,7 @@ func TestInMemoryBuildQueueMultipleSizeClasses(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	executeResponse, err := anypb.New(&remoteexecution.ExecuteResponse{
@@ -3167,7 +3199,7 @@ func TestInMemoryBuildQueueBackgroundRun(t *testing.T) {
 		/* workerInvocationStickinessLimits = */ nil,
 		/* maximumQueuedBackgroundLearningOperations = */ 10,
 		/* backgroundLearningOperationPriority = */ 100,
-		/* maximumSizeClass = */ 8))
+		/* sizeClasses = */ []uint32{8}))
 
 	clock.EXPECT().Now().Return(time.Unix(1002, 0))
 	response, err := buildQueue.Synchronize(ctx, &remoteworker.SynchronizeRequest{
@@ -3244,6 +3276,7 @@ func TestInMemoryBuildQueueBackgroundRun(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, update, &longrunningpb.Operation{
@@ -3301,6 +3334,7 @@ func TestInMemoryBuildQueueBackgroundRun(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	testutil.RequireEqualProto(t, &longrunningpb.Operation{
@@ -3365,6 +3399,7 @@ func TestInMemoryBuildQueueBackgroundRun(t *testing.T) {
 			Hash:      "da39a3ee5e6b4b0d3255bfef95601890afd80709",
 			SizeBytes: 123,
 		},
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	executeResponse, err := anypb.New(&remoteexecution.ExecuteResponse{
@@ -3520,13 +3555,15 @@ func TestInMemoryBuildQueueIdleSynchronizingWorkers(t *testing.T) {
 		},
 	}
 	metadataExecuting, err := anypb.New(&remoteexecution.ExecuteOperationMetadata{
-		Stage:        remoteexecution.ExecutionStage_EXECUTING,
-		ActionDigest: actionDigest,
+		Stage:          remoteexecution.ExecutionStage_EXECUTING,
+		ActionDigest:   actionDigest,
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	metadataCompleted, err := anypb.New(&remoteexecution.ExecuteOperationMetadata{
-		Stage:        remoteexecution.ExecutionStage_COMPLETED,
-		ActionDigest: actionDigest,
+		Stage:          remoteexecution.ExecutionStage_COMPLETED,
+		ActionDigest:   actionDigest,
+		DigestFunction: remoteexecution.DigestFunction_SHA1,
 	})
 	require.NoError(t, err)
 	executeResponse, err := anypb.New(&remoteexecution.ExecuteResponse{
@@ -3907,7 +3944,7 @@ func TestInMemoryBuildQueueWorkerInvocationStickinessLimit(t *testing.T) {
 		/* workerInvocationStickinessLimits = */ []time.Duration{3 * time.Second},
 		/* maximumQueuedBackgroundLearningOperations = */ 10,
 		/* backgroundLearningOperationPriority = */ 100,
-		/* maximumSizeClass = */ 0))
+		/* sizeClasses = */ []uint32{0}))
 
 	operationParameters := []struct {
 		operationName    string
@@ -3978,6 +4015,7 @@ func TestInMemoryBuildQueueWorkerInvocationStickinessLimit(t *testing.T) {
 				Hash:      "0474d2f48968a56da4de20718d8ac23aafd80709",
 				SizeBytes: 123,
 			},
+			DigestFunction: remoteexecution.DigestFunction_SHA1,
 		})
 		require.NoError(t, err)
 		testutil.RequireEqualProto(t, update, &longrunningpb.Operation{
@@ -4050,6 +4088,7 @@ func TestInMemoryBuildQueueWorkerInvocationStickinessLimit(t *testing.T) {
 				Hash:      "0474d2f48968a56da4de20718d8ac23aafd80709",
 				SizeBytes: 123,
 			},
+			DigestFunction: remoteexecution.DigestFunction_SHA1,
 		})
 		require.NoError(t, err)
 		operationName := operationParameters[operationIndex].operationName
@@ -4095,6 +4134,7 @@ func TestInMemoryBuildQueueWorkerInvocationStickinessLimit(t *testing.T) {
 				Hash:      "0474d2f48968a56da4de20718d8ac23aafd80709",
 				SizeBytes: 123,
 			},
+			DigestFunction: remoteexecution.DigestFunction_SHA1,
 		})
 		require.NoError(t, err)
 		executeResponse, err := anypb.New(&remoteexecution.ExecuteResponse{
@@ -4156,7 +4196,7 @@ func TestInMemoryBuildQueueAuthorization(t *testing.T) {
 			/* workerInvocationStickinessLimits = */ nil,
 			/* maximumQueuedBackgroundLearningOperations = */ 0,
 			/* backgroundLearningOperationPriority = */ 0,
-			/* maximumSizeClass = */ 0)
+			/* sizeClasses = */ []uint32{0})
 
 		// Allow the Execute
 		authorizer.EXPECT().Authorize(gomock.Any(), []digest.InstanceName{beepboop}).Return([]error{nil})
@@ -4207,6 +4247,7 @@ func TestInMemoryBuildQueueAuthorization(t *testing.T) {
 				Hash:      "61c585c297d00409bd477b6b80759c94ec545ab4",
 				SizeBytes: 456,
 			},
+			DigestFunction: remoteexecution.DigestFunction_SHA1,
 		})
 		testutil.RequireEqualProto(t, update, &longrunningpb.Operation{
 			Name:     "36ebab65-3c4f-4faf-818b-2eabb4cd1b02",
@@ -4240,7 +4281,7 @@ func TestInMemoryBuildQueueNestedInvocationsSynchronization(t *testing.T) {
 		/* workerInvocationStickinessLimits = */ nil,
 		/* maximumQueuedBackgroundLearningOperations = */ 0,
 		/* backgroundLearningOperationPriority = */ 0,
-		/* maximumSizeClass = */ 0))
+		/* sizeClasses = */ []uint32{0}))
 
 	// Create ten workers. Let all of them complete a task that
 	// belonged to the same correlated invocations ID, but a
@@ -4310,8 +4351,9 @@ func TestInMemoryBuildQueueNestedInvocationsSynchronization(t *testing.T) {
 		update, err := stream.Recv()
 		require.NoError(t, err)
 		metadata, err := anypb.New(&remoteexecution.ExecuteOperationMetadata{
-			Stage:        remoteexecution.ExecutionStage_QUEUED,
-			ActionDigest: actionDigest,
+			Stage:          remoteexecution.ExecutionStage_QUEUED,
+			ActionDigest:   actionDigest,
+			DigestFunction: remoteexecution.DigestFunction_SHA1,
 		})
 		require.NoError(t, err)
 		testutil.RequireEqualProto(t, &longrunningpb.Operation{
@@ -4361,8 +4403,9 @@ func TestInMemoryBuildQueueNestedInvocationsSynchronization(t *testing.T) {
 		update, err = stream.Recv()
 		require.NoError(t, err)
 		metadata, err = anypb.New(&remoteexecution.ExecuteOperationMetadata{
-			Stage:        remoteexecution.ExecutionStage_EXECUTING,
-			ActionDigest: actionDigest,
+			Stage:          remoteexecution.ExecutionStage_EXECUTING,
+			ActionDigest:   actionDigest,
+			DigestFunction: remoteexecution.DigestFunction_SHA1,
 		})
 		require.NoError(t, err)
 		testutil.RequireEqualProto(t, update, &longrunningpb.Operation{
@@ -4403,8 +4446,9 @@ func TestInMemoryBuildQueueNestedInvocationsSynchronization(t *testing.T) {
 		update, err = stream.Recv()
 		require.NoError(t, err)
 		metadata, err = anypb.New(&remoteexecution.ExecuteOperationMetadata{
-			Stage:        remoteexecution.ExecutionStage_COMPLETED,
-			ActionDigest: actionDigest,
+			Stage:          remoteexecution.ExecutionStage_COMPLETED,
+			ActionDigest:   actionDigest,
+			DigestFunction: remoteexecution.DigestFunction_SHA1,
 		})
 		require.NoError(t, err)
 		executeResponse, err := anypb.New(&remoteexecution.ExecuteResponse{

@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "platform",
@@ -16,11 +16,11 @@ go_library(
     deps = [
         "//pkg/proto/buildqueuestate",
         "//pkg/proto/configuration/scheduler",
-        "@com_github_bazelbuild_remote_apis//build/bazel/remote/execution/v2:execution",
+        "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
         "@com_github_buildbarn_bb_storage//pkg/blobstore",
         "@com_github_buildbarn_bb_storage//pkg/digest",
         "@com_github_buildbarn_bb_storage//pkg/util",
-        "@com_github_golang_protobuf//jsonpb:go_default_library_gen",
+        "@com_github_golang_protobuf//jsonpb",
         "@com_github_prometheus_client_golang//prometheus",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//status",
@@ -40,13 +40,13 @@ go_test(
         ":platform",
         "//internal/mock",
         "//pkg/proto/buildqueuestate",
-        "@com_github_bazelbuild_remote_apis//build/bazel/remote/execution/v2:execution",
+        "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
         "@com_github_buildbarn_bb_storage//pkg/blobstore/buffer",
         "@com_github_buildbarn_bb_storage//pkg/digest",
         "@com_github_buildbarn_bb_storage//pkg/testutil",
-        "@com_github_golang_mock//gomock",
         "@com_github_stretchr_testify//require",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//status",
+        "@org_uber_go_mock//gomock",
     ],
 )

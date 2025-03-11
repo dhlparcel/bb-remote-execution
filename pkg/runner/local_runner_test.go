@@ -16,23 +16,81 @@ import (
 	"github.com/buildbarn/bb-storage/pkg/filesystem"
 	"github.com/buildbarn/bb-storage/pkg/filesystem/path"
 	"github.com/buildbarn/bb-storage/pkg/testutil"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"go.uber.org/mock/gomock"
 )
 
-func TestLocalRunner(t *testing.T) {
+func TestLocalRunnerCheckReadiness(t *testing.T) {
+	ctrl, ctx := gomock.WithContext(context.Background(), t)
+
+	buildDirectory := mock.NewMockDirectory(ctrl)
+	runner := runner.NewLocalRunner(buildDirectory, &path.EmptyBuilder, runner.NewPlainCommandCreator(&syscall.SysProcAttr{}), false)
+
+	t.Run("NoPathSpecified", func(t *testing.T) {
+		_, err := runner.CheckReadiness(ctx, &runner_pb.CheckReadinessRequest{})
+		require.NoError(t, err)
+	})
+
+	t.Run("RootPath", func(t *testing.T) {
+		_, err := runner.CheckReadiness(ctx, &runner_pb.CheckReadinessRequest{
+			Path: ".",
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("NonExistentPath", func(t *testing.T) {
+		buildDirectory.EXPECT().Lstat(path.MustNewComponent("does_not_exist")).
+			Return(filesystem.FileInfo{}, syscall.ENOENT)
+
+		_, err := runner.CheckReadiness(ctx, &runner_pb.CheckReadinessRequest{
+			Path: "does_not_exist",
+		})
+		testutil.RequirePrefixedStatus(t, status.Error(codes.Internal, "Failed to check existence of path \"does_not_exist\" in build directory: no such file or directory"), err)
+	})
+
+	t.Run("NonExistentDirectory", func(t *testing.T) {
+		buildDirectory.EXPECT().EnterDirectory(path.MustNewComponent("does")).
+			Return(nil, syscall.ENOENT)
+
+		_, err := runner.CheckReadiness(ctx, &runner_pb.CheckReadinessRequest{
+			Path: "does/not/exist",
+		})
+		testutil.RequirePrefixedStatus(t, status.Error(codes.Internal, "Failed to resolve path \"does/not/exist\" in build directory: no such file or directory"), err)
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		someDirectory := mock.NewMockDirectoryCloser(ctrl)
+		buildDirectory.EXPECT().EnterDirectory(path.MustNewComponent("some")).
+			Return(someDirectory, nil)
+		nestedDirectory := mock.NewMockDirectoryCloser(ctrl)
+		someDirectory.EXPECT().EnterDirectory(path.MustNewComponent("nested")).
+			Return(nestedDirectory, nil)
+		nestedDirectory.EXPECT().Lstat(path.MustNewComponent("file")).
+			Return(filesystem.NewFileInfo(path.MustNewComponent("file"), filesystem.FileTypeRegularFile, false), nil)
+		nestedDirectory.EXPECT().Close()
+		someDirectory.EXPECT().Close()
+
+		_, err := runner.CheckReadiness(ctx, &runner_pb.CheckReadinessRequest{
+			Path: "some/nested/file",
+		})
+		require.NoError(t, err)
+	})
+}
+
+func TestLocalRunnerRun(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	buildDirectoryPath := t.TempDir()
-	buildDirectory, err := filesystem.NewLocalDirectory(buildDirectoryPath)
+	buildDirectory, err := filesystem.NewLocalDirectory(path.LocalFormat.NewParser(buildDirectoryPath))
 	require.NoError(t, err)
 	defer buildDirectory.Close()
 
 	buildDirectoryPathBuilder, scopeWalker := path.EmptyBuilder.Join(path.VoidScopeWalker)
-	require.NoError(t, path.Resolve(buildDirectoryPath, scopeWalker))
+	require.NoError(t, path.Resolve(path.UNIXFormat.NewParser(buildDirectoryPath), scopeWalker))
 
 	var cmdPath string
 	var getEnvCommand []string
@@ -66,7 +124,7 @@ func TestLocalRunner(t *testing.T) {
 			TemporaryDirectory: "EmptyEnvironment/tmp",
 		})
 		require.NoError(t, err)
-		require.Equal(t, int32(0), response.ExitCode)
+		require.Equal(t, int64(0), response.ExitCode)
 
 		stdout, err := os.ReadFile(filepath.Join(testPath, "stdout"))
 		require.NoError(t, err)
@@ -100,7 +158,7 @@ func TestLocalRunner(t *testing.T) {
 			TemporaryDirectory: "NonEmptyEnvironment/tmp",
 		})
 		require.NoError(t, err)
-		require.Equal(t, int32(0), response.ExitCode)
+		require.Equal(t, int64(0), response.ExitCode)
 
 		stdout, err := os.ReadFile(filepath.Join(testPath, "stdout"))
 		require.NoError(t, err)
@@ -155,7 +213,7 @@ func TestLocalRunner(t *testing.T) {
 			TemporaryDirectory:   "OverridingTmpdir/tmp",
 		})
 		require.NoError(t, err)
-		require.Equal(t, int32(0), response.ExitCode)
+		require.Equal(t, int64(0), response.ExitCode)
 
 		stdout, err := os.ReadFile(filepath.Join(testPath, "stdout"))
 		require.NoError(t, err)
@@ -198,7 +256,7 @@ func TestLocalRunner(t *testing.T) {
 			TemporaryDirectory: "NonZeroExitCode/tmp",
 		})
 		require.NoError(t, err)
-		require.Equal(t, int32(255), response.ExitCode)
+		require.Equal(t, int64(255), response.ExitCode)
 
 		stdout, err := os.ReadFile(filepath.Join(testPath, "stdout"))
 		require.NoError(t, err)
@@ -231,7 +289,7 @@ func TestLocalRunner(t *testing.T) {
 			TemporaryDirectory: "SigKill/tmp",
 		})
 		require.NoError(t, err)
-		require.NotEqual(t, int32(0), response.ExitCode)
+		require.NotEqual(t, int64(0), response.ExitCode)
 
 		require.Len(t, response.ResourceUsage, 1)
 		var posixResourceUsage resourceusage.POSIXResourceUsage
@@ -314,7 +372,7 @@ func TestLocalRunner(t *testing.T) {
 			TemporaryDirectory:   "RelativeSearchPath/tmp",
 		})
 		require.NoError(t, err)
-		require.Equal(t, int32(42), response.ExitCode)
+		require.Equal(t, int64(42), response.ExitCode)
 
 		stdout, err := os.ReadFile(filepath.Join(testPath, "stdout"))
 		require.NoError(t, err)

@@ -44,10 +44,18 @@ type nfsv4Mount struct {
 }
 
 func (m *nfsv4Mount) Expose(terminationGroup program.Group, rootDirectory virtual.Directory) error {
-	// Random values that the client can use to detect that the
-	// server has been restarted and lost all state.
-	var verifier nfsv4_xdr.Verifier4
-	random.FastThreadSafeGenerator.Read(verifier[:])
+	// Random values that the client can use to identify the server, or
+	// detect that the server has been restarted and lost all state.
+	var soMajorID [8]byte
+	random.FastThreadSafeGenerator.Read(soMajorID[:])
+	serverOwner := nfsv4_xdr.ServerOwner4{
+		SoMinorId: random.FastThreadSafeGenerator.Uint64(),
+		SoMajorId: soMajorID[:],
+	}
+	var serverScope [8]byte
+	random.FastThreadSafeGenerator.Read(serverScope[:])
+	var rebootVerifier nfsv4_xdr.Verifier4
+	random.FastThreadSafeGenerator.Read(rebootVerifier[:])
 	var stateIDOtherPrefix [4]byte
 	random.FastThreadSafeGenerator.Read(stateIDOtherPrefix[:])
 
@@ -60,19 +68,46 @@ func (m *nfsv4Mount) Expose(terminationGroup program.Group, rootDirectory virtua
 		return util.StatusWrap(err, "Invalid announced lease time")
 	}
 
+	// Create a single server that is capable of accepting both
+	// NFSv4.0 and NFSv4.1 requests.
+	openedFilesPool := nfsv4.NewOpenedFilesPool(m.handleAllocator.ResolveHandle)
+	program := nfsv4.NewMinorVersionFallbackProgram([]nfsv4_xdr.Nfs4Program{
+		nfsv4.NewNFS41Program(
+			rootDirectory,
+			openedFilesPool,
+			serverOwner,
+			serverScope[:],
+			// TODO: Should any of these parameters be configurable?
+			&nfsv4_xdr.ChannelAttrs4{
+				CaMaxrequestsize:        2 * 1024 * 1024,
+				CaMaxresponsesize:       2 * 1024 * 1024,
+				CaMaxresponsesizeCached: 64 * 1024,
+				CaMaxoperations:         1000,
+				CaMaxrequests:           100,
+			},
+			random.NewFastSingleThreadedGenerator(),
+			rebootVerifier,
+			clock.SystemClock,
+			enforcedLeaseTime.AsDuration(),
+			announcedLeaseTime.AsDuration(),
+		),
+		nfsv4.NewNFS40Program(
+			rootDirectory,
+			openedFilesPool,
+			random.NewFastSingleThreadedGenerator(),
+			rebootVerifier,
+			stateIDOtherPrefix,
+			clock.SystemClock,
+			enforcedLeaseTime.AsDuration(),
+			announcedLeaseTime.AsDuration(),
+		),
+	})
+
 	// Create an RPC server that offers the NFSv4 program.
 	rpcServer := rpcserver.NewServer(map[uint32]rpcserver.Service{
 		nfsv4_xdr.NFS4_PROGRAM_PROGRAM_NUMBER: nfsv4_xdr.NewNfs4ProgramService(
-			nfsv4.NewMetricsProgram(
-				nfsv4.NewBaseProgram(
-					rootDirectory,
-					m.handleAllocator.ResolveHandle,
-					random.NewFastSingleThreadedGenerator(),
-					verifier,
-					stateIDOtherPrefix,
-					clock.SystemClock,
-					enforcedLeaseTime.AsDuration(),
-					announcedLeaseTime.AsDuration()))),
+			nfsv4.NewMetricsProgram(program),
+		),
 	}, m.authenticator)
 
 	return m.mount(terminationGroup, rpcServer)
@@ -82,6 +117,10 @@ func (m *nfsv4Mount) Expose(terminationGroup program.Group, rootDirectory virtua
 // specified in a configuration message and starts processing of
 // incoming requests.
 func NewMountFromConfiguration(configuration *pb.MountConfiguration, fsName string, rootDirectoryAttributeCaching, childDirectoriesAttributeCaching, leavesAttributeCaching AttributeCachingDuration) (Mount, virtual.StatefulHandleAllocator, error) {
+	if configuration == nil {
+		return nil, nil, status.Error(codes.InvalidArgument, "No mount configuration provided")
+	}
+
 	switch backend := configuration.Backend.(type) {
 	case *pb.MountConfiguration_Fuse:
 		handleAllocator := virtual.NewFUSEHandleAllocator(random.FastThreadSafeGenerator)

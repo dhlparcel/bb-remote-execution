@@ -10,12 +10,13 @@ import (
 	runner_pb "github.com/buildbarn/bb-remote-execution/pkg/proto/runner"
 	"github.com/buildbarn/bb-remote-execution/pkg/runner"
 	"github.com/buildbarn/bb-storage/pkg/testutil"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
+
+	"go.uber.org/mock/gomock"
 )
 
 func TestPathExistenceCheckingRunner(t *testing.T) {
@@ -37,7 +38,7 @@ func TestPathExistenceCheckingRunner(t *testing.T) {
 	t.Run("NotReadyCheckReadiness", func(t *testing.T) {
 		// When the file used for readiness checking is not
 		// present, CheckReadiness() should fail.
-		_, err := runnerServer.CheckReadiness(ctx, &emptypb.Empty{})
+		_, err := runnerServer.CheckReadiness(ctx, &runner_pb.CheckReadinessRequest{})
 		testutil.RequirePrefixedStatus(
 			t,
 			status.Errorf(codes.Unavailable, "Path %#v: ", readinessCheckingFilename),
@@ -68,7 +69,7 @@ func TestPathExistenceCheckingRunner(t *testing.T) {
 		// Readiness checks should now succeed.
 		mockRunner.EXPECT().CheckReadiness(ctx, gomock.Any()).Return(&emptypb.Empty{}, nil)
 
-		_, err := runnerServer.CheckReadiness(ctx, &emptypb.Empty{})
+		_, err := runnerServer.CheckReadiness(ctx, &runner_pb.CheckReadinessRequest{})
 		require.NoError(t, err)
 	})
 

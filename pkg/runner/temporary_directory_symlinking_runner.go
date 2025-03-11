@@ -60,18 +60,18 @@ func (r *temporaryDirectorySymlinkingRunner) Run(ctx context.Context, request *r
 	// Compute the absolute path of the temporary directory that is
 	// offered by bb_worker.
 	temporaryDirectoryPath, scopeWalker := r.buildDirectoryPath.Join(path.VoidScopeWalker)
-	if err := path.Resolve(request.TemporaryDirectory, scopeWalker); err != nil {
+	if err := path.Resolve(path.UNIXFormat.NewParser(request.TemporaryDirectory), scopeWalker); err != nil {
 		return nil, util.StatusWrap(err, "Failed to resolve temporary directory")
 	}
 
 	// Install a symbolic link pointing to the temporary directory.
-	if err := r.updateSymlink(temporaryDirectoryPath.String()); err != nil {
+	if err := r.updateSymlink(temporaryDirectoryPath.GetUNIXString()); err != nil {
 		return nil, err
 	}
 	return r.base.Run(ctx, request)
 }
 
-func (r *temporaryDirectorySymlinkingRunner) CheckReadiness(ctx context.Context, request *emptypb.Empty) (*emptypb.Empty, error) {
+func (r *temporaryDirectorySymlinkingRunner) CheckReadiness(ctx context.Context, request *runner_pb.CheckReadinessRequest) (*emptypb.Empty, error) {
 	// When idle, test that symlink creation works properly. That
 	// way the worker won't pick up any actions from the scheduler
 	// in case of misconfigurations.

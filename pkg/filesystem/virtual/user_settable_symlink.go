@@ -4,16 +4,11 @@ import (
 	"context"
 	"sync"
 
-	"github.com/buildbarn/bb-remote-execution/pkg/proto/outputpathpersistency"
-	"github.com/buildbarn/bb-remote-execution/pkg/proto/remoteoutputservice"
 	"github.com/buildbarn/bb-remote-execution/pkg/proto/tmp_installer"
 	"github.com/buildbarn/bb-storage/pkg/auth"
-	"github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/buildbarn/bb-storage/pkg/filesystem"
 	"github.com/buildbarn/bb-storage/pkg/filesystem/path"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -37,7 +32,7 @@ type UserSettableSymlink struct {
 }
 
 var (
-	_ NativeLeaf                                      = (*UserSettableSymlink)(nil)
+	_ LinkableLeaf                                    = (*UserSettableSymlink)(nil)
 	_ tmp_installer.TemporaryDirectoryInstallerServer = (*UserSettableSymlink)(nil)
 )
 
@@ -63,35 +58,15 @@ func (f *UserSettableSymlink) InstallTemporaryDirectory(ctx context.Context, req
 	key := protojson.Format(publicAuthenticationMetadata)
 
 	temporaryDirectory, scopeWalker := f.buildDirectory.Join(path.NewRelativeScopeWalker(path.VoidComponentWalker))
-	if err := path.Resolve(request.TemporaryDirectory, scopeWalker); err != nil {
+	if err := path.Resolve(path.UNIXFormat.NewParser(request.TemporaryDirectory), scopeWalker); err != nil {
 		return nil, err
 	}
-	target := []byte(temporaryDirectory.String())
+	target := []byte(temporaryDirectory.GetUNIXString())
 
 	f.lock.Lock()
 	f.targets[key] = target
 	f.lock.Unlock()
 	return &emptypb.Empty{}, nil
-}
-
-// Readlink returns the target of the symbolic link. This method always
-// fails, as it's called in places where no Context is available.
-func (f *UserSettableSymlink) Readlink() (string, error) {
-	return "", status.Error(codes.InvalidArgument, "Target of user settable symlinks can only be obtained through the virtual file system")
-}
-
-// GetOutputServiceFileStatus returns the status of the symbolic link,
-// so that it may be reported through the Remote Output Service. This
-// method is a no-op, as this type is not used in combination with the
-// Remote Output Service.
-func (f *UserSettableSymlink) GetOutputServiceFileStatus(digestFunction *digest.Function) (*remoteoutputservice.FileStatus, error) {
-	return &remoteoutputservice.FileStatus{}, nil
-}
-
-// AppendOutputPathPersistencyDirectoryNode returns the status of the
-// symbolic link, so that it may be persisted on disk. This method is a
-// no-op, as this type is not used as part of build output paths.
-func (f *UserSettableSymlink) AppendOutputPathPersistencyDirectoryNode(directory *outputpathpersistency.Directory, name path.Component) {
 }
 
 // VirtualGetAttributes returns the file system attributes of the

@@ -3,8 +3,6 @@ package virtual
 import (
 	"context"
 
-	"github.com/buildbarn/bb-storage/pkg/blobstore"
-	"github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/buildbarn/bb-storage/pkg/filesystem"
 
 	"google.golang.org/grpc/codes"
@@ -22,14 +20,6 @@ func (placeholderFile) Link() Status {
 }
 
 func (placeholderFile) Unlink() {
-}
-
-func (placeholderFile) UploadFile(ctx context.Context, contentAddressableStorage blobstore.BlobAccess, digestFunction digest.Function) (digest.Digest, error) {
-	return digest.BadDigest, status.Error(codes.InvalidArgument, "This file cannot be uploaded, as it is a placeholder")
-}
-
-func (placeholderFile) GetContainingDigests() digest.Set {
-	return digest.EmptySet
 }
 
 func (placeholderFile) VirtualAllocate(off, size uint64) Status {
@@ -55,4 +45,14 @@ func (placeholderFile) VirtualSeek(offset uint64, regionType filesystem.RegionTy
 
 func (placeholderFile) VirtualWrite(buf []byte, off uint64) (int, Status) {
 	panic("Request to write to symbolic link should have been intercepted")
+}
+
+func (placeholderFile) VirtualApply(data any) bool {
+	switch p := data.(type) {
+	case *ApplyUploadFile:
+		p.Err = status.Error(codes.InvalidArgument, "This file cannot be uploaded, as it is a placeholder")
+	default:
+		return false
+	}
+	return true
 }

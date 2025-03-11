@@ -9,11 +9,12 @@ import (
 	"github.com/buildbarn/bb-storage/pkg/filesystem"
 	"github.com/buildbarn/bb-storage/pkg/filesystem/path"
 	"github.com/buildbarn/bb-storage/pkg/testutil"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"go.uber.org/mock/gomock"
 )
 
 func TestLazyDirectory(t *testing.T) {
@@ -115,13 +116,15 @@ func TestLazyDirectory(t *testing.T) {
 	t.Run("ReadlinkSuccess", func(t *testing.T) {
 		underlyingDirectory := mock.NewMockDirectoryCloser(ctrl)
 		directoryOpener.EXPECT().Call().Return(underlyingDirectory, nil)
-		underlyingDirectory.EXPECT().Readlink(path.MustNewComponent("symlink")).Return("target", nil)
+		underlyingDirectory.EXPECT().Readlink(path.MustNewComponent("symlink")).Return(path.UNIXFormat.NewParser("target"), nil)
 		underlyingDirectory.EXPECT().Close().Return(nil)
 
 		// Call should be forwarded literally.
-		target, err := directory.Readlink(path.MustNewComponent("symlink"))
+		targetParser, err := directory.Readlink(path.MustNewComponent("symlink"))
 		require.NoError(t, err)
-		require.Equal(t, target, "target")
+		targetPath, scopeWalker := path.EmptyBuilder.Join(path.VoidScopeWalker)
+		require.NoError(t, path.Resolve(targetParser, scopeWalker))
+		require.Equal(t, "target", targetPath.GetUNIXString())
 	})
 
 	t.Run("RemoveSuccess", func(t *testing.T) {
@@ -170,11 +173,16 @@ func TestLazyDirectory(t *testing.T) {
 	t.Run("SymlinkSuccess", func(t *testing.T) {
 		underlyingDirectory := mock.NewMockDirectoryCloser(ctrl)
 		directoryOpener.EXPECT().Call().Return(underlyingDirectory, nil)
-		underlyingDirectory.EXPECT().Symlink("old", path.MustNewComponent("new")).Return(nil)
+		underlyingDirectory.EXPECT().Symlink(gomock.Any(), path.MustNewComponent("new")).
+			Do(func(targetParser path.Parser, name path.Component) {
+				targetPath, scopeWalker := path.EmptyBuilder.Join(path.VoidScopeWalker)
+				require.NoError(t, path.Resolve(targetParser, scopeWalker))
+				require.Equal(t, "old", targetPath.GetUNIXString())
+			})
 		underlyingDirectory.EXPECT().Close().Return(nil)
 
 		// Call should be forwarded literally.
-		err := directory.Symlink("old", path.MustNewComponent("new"))
+		err := directory.Symlink(path.UNIXFormat.NewParser("old"), path.MustNewComponent("new"))
 		require.NoError(t, err)
 	})
 

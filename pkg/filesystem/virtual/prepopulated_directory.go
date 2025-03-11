@@ -14,7 +14,7 @@ type ChildRemover func() error
 // PrepopulatedDirectory.FilterChildren() for each of the children
 // underneath the current directory hierarchy.
 //
-// For each of the children, an InitialNode object is provided that
+// For each of the children, an InitialChild object is provided that
 // describes the contents of that file or directory. In addition to
 // that, a callback is provided that can remove the file or the contents
 // of the directory. This callback may be invoked synchronously or
@@ -22,7 +22,7 @@ type ChildRemover func() error
 //
 // The boolean return value of this function signals whether traversal
 // should continue. When false, traversal will stop immediately.
-type ChildFilter func(node InitialNode, remove ChildRemover) bool
+type ChildFilter func(node InitialChild, remove ChildRemover) bool
 
 // DirectoryPrepopulatedDirEntry contains information about a directory
 // node that is stored in a PrepopulatedDirectory.
@@ -34,16 +34,16 @@ type DirectoryPrepopulatedDirEntry struct {
 // LeafPrepopulatedDirEntry contains information about a leaf node that
 // is stored in a PrepopulatedDirectory.
 type LeafPrepopulatedDirEntry struct {
-	Child NativeLeaf
+	Child LinkableLeaf
 	Name  path.Component
 }
 
 // PrepopulatedDirectoryChild is either a PrepopulatedDirectory or a
-// NativeLeaf, as returned by PrepopulatedDirectory.LookupChild().
-type PrepopulatedDirectoryChild = Child[PrepopulatedDirectory, NativeLeaf, Node]
+// LinkableLeaf, as returned by PrepopulatedDirectory.LookupChild().
+type PrepopulatedDirectoryChild = Child[PrepopulatedDirectory, LinkableLeaf, Node]
 
 // PrepopulatedDirectory is a Directory that is writable and can contain
-// files of type NativeLeaf.
+// files of type LinkableLeaf.
 //
 // By making use of InitialContentsFetcher, it is possible to create
 // subdirectories that are prepopulated with files and directories.
@@ -61,7 +61,7 @@ type PrepopulatedDirectory interface {
 	//
 	// TODO: Can't use PrepopulatedDirectoryChild in the return type
 	// here, due to https://github.com/golang/go/issues/50259.
-	LookupChild(name path.Component) (Child[PrepopulatedDirectory, NativeLeaf, Node], error)
+	LookupChild(name path.Component) (Child[PrepopulatedDirectory, LinkableLeaf, Node], error)
 	// LookupAllChildren() looks up all files and directories
 	// contained in a PrepopulatedDirectory. This method is similar
 	// to VirtualReadDir(), except that it returns the native types
@@ -75,7 +75,7 @@ type PrepopulatedDirectory interface {
 	// will be replaced. If the overwrite flag is not set, the call
 	// will fail if one or more entries already exist. No changes
 	// will be made to the directory in that case.
-	CreateChildren(children map[path.Component]InitialNode, overwrite bool) error
+	CreateChildren(children map[path.Component]InitialChild, overwrite bool) error
 	// CreateAndEnterPrepopulatedDirectory() is similar to
 	// LookupChild(), except that it creates the specified directory
 	// if it does not yet exist. If a file already exists, it will
@@ -99,7 +99,7 @@ type PrepopulatedDirectory interface {
 	// of FilePool.
 	InstallHooks(fileAllocator FileAllocator, errorLogger util.ErrorLogger)
 	// FilterChildren() can be used to traverse over all of the
-	// InitialContentsFetcher and NativeLeaf objects stored in this
+	// InitialContentsFetcher and LinkableLeaf objects stored in this
 	// directory hierarchy. For each of the objects, a callback is
 	// provided that can be used to remove the file or the contents
 	// of the directory associated with this object.

@@ -15,7 +15,7 @@ type cleanBuildDirectoryCreator struct {
 }
 
 // NewCleanBuildDirectoryCreator is an adapter for BuildDirectoryCreator
-// that upon acquistion and release calls into a Cleaner. This Cleaner
+// that upon acquisition and release calls into a Cleaner. This Cleaner
 // may, for example, be set up to empty out the build directory. This
 // guarantees that build actions aren't able to see data left behind by
 // ones that ran previously.
@@ -26,11 +26,11 @@ func NewCleanBuildDirectoryCreator(base BuildDirectoryCreator, idleInvoker *clea
 	}
 }
 
-func (dc *cleanBuildDirectoryCreator) GetBuildDirectory(ctx context.Context, actionDigest digest.Digest, mayRunInParallel bool) (BuildDirectory, *path.Trace, error) {
+func (dc *cleanBuildDirectoryCreator) GetBuildDirectory(ctx context.Context, actionDigestIfNotRunInParallel *digest.Digest) (BuildDirectory, *path.Trace, error) {
 	if err := dc.idleInvoker.Acquire(ctx); err != nil {
 		return nil, nil, util.StatusWrap(err, "Failed to clean before acquiring build directory")
 	}
-	buildDirectory, buildDirectoryPath, err := dc.base.GetBuildDirectory(ctx, actionDigest, mayRunInParallel)
+	buildDirectory, buildDirectoryPath, err := dc.base.GetBuildDirectory(ctx, actionDigestIfNotRunInParallel)
 	if err != nil {
 		dc.idleInvoker.Release(ctx)
 		return nil, nil, err

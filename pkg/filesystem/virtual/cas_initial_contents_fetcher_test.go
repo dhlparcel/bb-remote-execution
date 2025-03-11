@@ -10,11 +10,12 @@ import (
 	"github.com/buildbarn/bb-storage/pkg/digest"
 	"github.com/buildbarn/bb-storage/pkg/filesystem/path"
 	"github.com/buildbarn/bb-storage/pkg/testutil"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"go.uber.org/mock/gomock"
 )
 
 func TestCASInitialContentsFetcherFetchContents(t *testing.T) {
@@ -104,7 +105,7 @@ func TestCASInitialContentsFetcherFetchContents(t *testing.T) {
 				},
 			},
 		}, nil)
-		file1 := mock.NewMockNativeLeaf(ctrl)
+		file1 := mock.NewMockLinkableLeaf(ctrl)
 		fileReadMonitor1 := mock.NewMockFileReadMonitor(ctrl)
 		fileReadMonitorFactory.EXPECT().Call(path.MustNewComponent("file1")).Return(fileReadMonitor1.Call)
 		casFileFactory.EXPECT().LookupFile(
@@ -138,7 +139,7 @@ func TestCASInitialContentsFetcherFetchContents(t *testing.T) {
 				},
 			},
 		}, nil)
-		file1 := mock.NewMockNativeLeaf(ctrl)
+		file1 := mock.NewMockLinkableLeaf(ctrl)
 		fileReadMonitor1 := mock.NewMockFileReadMonitor(ctrl)
 		fileReadMonitorFactory.EXPECT().Call(path.MustNewComponent("hello")).Return(fileReadMonitor1.Call)
 		casFileFactory.EXPECT().LookupFile(
@@ -194,7 +195,7 @@ func TestCASInitialContentsFetcherFetchContents(t *testing.T) {
 		childDirectoryWalker := mock.NewMockDirectoryWalker(ctrl)
 		directoryWalker.EXPECT().GetChild(digest.MustNewDigest("hello", remoteexecution.DigestFunction_MD5, "4b3b03436604cb9d831b91c71a8c1952", 123)).
 			Return(childDirectoryWalker)
-		executableLeaf := mock.NewMockNativeLeaf(ctrl)
+		executableLeaf := mock.NewMockLinkableLeaf(ctrl)
 		executableReadMonitor := mock.NewMockFileReadMonitor(ctrl)
 		fileReadMonitorFactory.EXPECT().Call(path.MustNewComponent("executable")).Return(executableReadMonitor.Call)
 		casFileFactory.EXPECT().LookupFile(
@@ -202,7 +203,7 @@ func TestCASInitialContentsFetcherFetchContents(t *testing.T) {
 			/* isExecutable = */ true,
 			gomock.Any(),
 		).Return(executableLeaf)
-		fileLeaf := mock.NewMockNativeLeaf(ctrl)
+		fileLeaf := mock.NewMockLinkableLeaf(ctrl)
 		fileReadMonitor := mock.NewMockFileReadMonitor(ctrl)
 		fileReadMonitorFactory.EXPECT().Call(path.MustNewComponent("file")).Return(fileReadMonitor.Call)
 		casFileFactory.EXPECT().LookupFile(
@@ -210,17 +211,17 @@ func TestCASInitialContentsFetcherFetchContents(t *testing.T) {
 			/* isExecutable = */ false,
 			gomock.Any(),
 		).Return(fileLeaf)
-		symlinkLeaf := mock.NewMockNativeLeaf(ctrl)
+		symlinkLeaf := mock.NewMockLinkableLeaf(ctrl)
 		symlinkFactory.EXPECT().LookupSymlink([]byte("target")).Return(symlinkLeaf)
 
 		children, err := initialContentsFetcher.FetchContents(fileReadMonitorFactory.Call)
 		require.NoError(t, err)
 		childInitialContentsFetcher, _ := children[path.MustNewComponent("directory")].GetPair()
-		require.Equal(t, map[path.Component]virtual.InitialNode{
-			path.MustNewComponent("directory"):  virtual.InitialNode{}.FromDirectory(childInitialContentsFetcher),
-			path.MustNewComponent("executable"): virtual.InitialNode{}.FromLeaf(executableLeaf),
-			path.MustNewComponent("file"):       virtual.InitialNode{}.FromLeaf(fileLeaf),
-			path.MustNewComponent("symlink"):    virtual.InitialNode{}.FromLeaf(symlinkLeaf),
+		require.Equal(t, map[path.Component]virtual.InitialChild{
+			path.MustNewComponent("directory"):  virtual.InitialChild{}.FromDirectory(childInitialContentsFetcher),
+			path.MustNewComponent("executable"): virtual.InitialChild{}.FromLeaf(executableLeaf),
+			path.MustNewComponent("file"):       virtual.InitialChild{}.FromLeaf(fileLeaf),
+			path.MustNewComponent("symlink"):    virtual.InitialChild{}.FromLeaf(symlinkLeaf),
 		}, children)
 
 		// Check that the InitialContentsFetcher that is created
@@ -256,8 +257,11 @@ func TestCASInitialContentsFetcherGetContainingDigests(t *testing.T) {
 			Return(nil, status.Error(codes.Internal, "Server failure"))
 		directoryWalker.EXPECT().GetDescription().Return("Root directory")
 
-		_, err := initialContentsFetcher.GetContainingDigests(ctx)
-		testutil.RequireEqualStatus(t, status.Error(codes.Internal, "Root directory: Server failure"), err)
+		p := virtual.ApplyGetContainingDigests{
+			Context: ctx,
+		}
+		require.True(t, initialContentsFetcher.VirtualApply(&p))
+		testutil.RequireEqualStatus(t, status.Error(codes.Internal, "Root directory: Server failure"), p.Err)
 	})
 
 	t.Run("ChildDirectoryInvalidDigest", func(t *testing.T) {
@@ -276,8 +280,11 @@ func TestCASInitialContentsFetcherGetContainingDigests(t *testing.T) {
 		}, nil)
 		directoryWalker.EXPECT().GetDescription().Return("Root directory")
 
-		_, err := initialContentsFetcher.GetContainingDigests(ctx)
-		testutil.RequireEqualStatus(t, status.Error(codes.InvalidArgument, "Root directory: Failed to obtain digest for directory \"hello\": Hash has length 18, while 32 characters were expected"), err)
+		p := virtual.ApplyGetContainingDigests{
+			Context: ctx,
+		}
+		require.True(t, initialContentsFetcher.VirtualApply(&p))
+		testutil.RequireEqualStatus(t, status.Error(codes.InvalidArgument, "Root directory: Failed to obtain digest for directory \"hello\": Hash has length 18, while 32 characters were expected"), p.Err)
 	})
 
 	t.Run("ChildFileInvalidDigest", func(t *testing.T) {
@@ -296,8 +303,11 @@ func TestCASInitialContentsFetcherGetContainingDigests(t *testing.T) {
 		}, nil)
 		directoryWalker.EXPECT().GetDescription().Return("Root directory")
 
-		_, err := initialContentsFetcher.GetContainingDigests(ctx)
-		testutil.RequireEqualStatus(t, status.Error(codes.InvalidArgument, "Root directory: Failed to obtain digest for file \"hello\": Hash has length 18, while 32 characters were expected"), err)
+		p := virtual.ApplyGetContainingDigests{
+			Context: ctx,
+		}
+		require.True(t, initialContentsFetcher.VirtualApply(&p))
+		testutil.RequireEqualStatus(t, status.Error(codes.InvalidArgument, "Root directory: Failed to obtain digest for file \"hello\": Hash has length 18, while 32 characters were expected"), p.Err)
 	})
 
 	t.Run("Success", func(t *testing.T) {
@@ -356,8 +366,11 @@ func TestCASInitialContentsFetcherGetContainingDigests(t *testing.T) {
 			},
 		}, nil)
 
-		digests, err := initialContentsFetcher.GetContainingDigests(ctx)
-		require.NoError(t, err)
+		p := virtual.ApplyGetContainingDigests{
+			Context: ctx,
+		}
+		require.True(t, initialContentsFetcher.VirtualApply(&p))
+		require.NoError(t, p.Err)
 		require.Equal(
 			t,
 			digest.NewSetBuilder().
@@ -366,6 +379,6 @@ func TestCASInitialContentsFetcherGetContainingDigests(t *testing.T) {
 				Add(digest.MustNewDigest("hello", remoteexecution.DigestFunction_MD5, "c0607941dd5b3ca8e175a1bfbfd1c0ea", 789)).
 				Add(digest.MustNewDigest("hello", remoteexecution.DigestFunction_MD5, "19dc69325bd8dfcd75cefbb6144ea3bb", 42)).
 				Build(),
-			digests)
+			p.ContainingDigests)
 	})
 }

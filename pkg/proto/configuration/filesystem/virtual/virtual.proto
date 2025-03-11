@@ -3,6 +3,7 @@ syntax = "proto3";
 package buildbarn.configuration.filesystem.virtual;
 
 import "google/protobuf/duration.proto";
+import "google/protobuf/wrappers.proto";
 import "pkg/proto/configuration/eviction/eviction.proto";
 
 option go_package = "github.com/buildbarn/bb-remote-execution/pkg/proto/configuration/filesystem/virtual";
@@ -14,20 +15,25 @@ message MountConfiguration {
   oneof backend {
     // Use the kernel's FUSE driver to expose the mount.
     //
-    // This option is supported on Linux and macOS, though its use is
-    // only recommended on Linux. On macOS, this option requires the
-    // OSXFUSE or macFUSE kernel extension to be installed. This kernel
-    // extension tends to cause system lockups under high load.
+    // This option is supported on Linux. In principle this could be
+    // made to work on macOS using the OSXFUSE/macFUSE kernel extension.
+    // Unfortunately, this kernel extension contains various bugs that
+    // cause system lockups under high load.
     FUSEMountConfiguration fuse = 2;
 
     // Run an in-process NFSv4 server and use the kernel's NFSv4 client
-    // to expose the mount. This option is currently only supported on
-    // macOS Ventura 13.3 (22E252) or later.
+    // to expose the mount. This option is supported on macOS starting
+    // with Ventura 13.3 (22E252), though the use of Sonoma 14.5
+    // (23F79) or later is strongly recommended.
     //
-    // The NFS server is expected to conform to NFSv4.0 (RFC 7530).
-    // Features provided by newer versions of the protocol, such as
-    // NFSv4.1 (RFC 8881) and NFSv4.2 (RFC 7862), are not supported at
-    // this time. macOS also does not support the latter.
+    // This option also works on Linux, but support was only added for
+    // protocol conformance validation purposes. On Linux, the use of
+    // FUSE is strongly recommended, as it performs better and deals
+    // with the server shutting down more gracefully.
+    //
+    // The NFS server is expected to conform to NFSv4.0 (RFC 7530) and
+    // NFSv4.1 (RFC 8881). The use of NFSv4.1 is recommended, because it
+    // provides better parallelism.
     NFSv4MountConfiguration nfsv4 = 3;
   }
 }
@@ -81,11 +87,8 @@ message FUSEMountConfiguration {
   // unintended access to the mount point.
   bool allow_other = 6;
 
-  // If set, the FUSE mount is created by calling mount() directly, as
-  // opposed to invoking the fusermount utility. This option needs to be
-  // enabled in environments where the fusermount utility is not
-  // available, such as the bb_worker container images.
-  bool direct_mount = 7;
+  // Was 'direct_mount'. Use 'mount_method' instead.
+  reserved 7;
 
   // If set, extract authentication metadata from the "fuse_in_header"
   // messages sent by the kernel. This field contains a JMESPath
@@ -133,6 +136,23 @@ message FUSEMountConfiguration {
   //
   // Recommended value: unset
   map<string, string> linux_backing_dev_info_tunables = 9;
+
+  enum MountMethod {
+    // Call into the fusermount utility to create the FUSE mount.
+    FUSERMOUNT = 0;
+
+    // Create the FUSE mount using the mount() system call. This can be
+    // used in environments where the fusermount utility is not available,
+    // such as the bb_worker container images.
+    DIRECT = 1;
+
+    // First attempt to create the FUSE mount using the mount() system
+    // call. Upon failure, fall back to the fusermount utility.
+    DIRECT_AND_FUSERMOUNT = 2;
+  }
+
+  // Method to use to create the FUSE mount.
+  MountMethod mount_method = 10;
 }
 
 message NFSv4MountConfiguration {
@@ -140,6 +160,10 @@ message NFSv4MountConfiguration {
     // Configuration options specific to mounting the NFSv4 file system
     // on macOS.
     NFSv4DarwinMountConfiguration darwin = 1;
+
+    // Configuration options specific to mounting the NFSv4 file system
+    // on Linux.
+    NFSv4LinuxMountConfiguration linux = 5;
   }
 
   // The amount of time that needs to pass for the server to close files
@@ -209,6 +233,21 @@ message NFSv4DarwinMountConfiguration {
   // Please refer to the 'accesscache' option in the mount_nfs(8) manual
   // page for more details.
   uint32 access_cache_size = 4;
+
+  // The minor version of the protocol to use. When set to 0, the mount
+  // will use NFSv4.0. When set to 1, the mount will use NFSv4.1.
+  //
+  // When left unset, the latest protocol version is used that is
+  // supported by the currently running version of macOS.
+  google.protobuf.UInt32Value minor_version = 5;
+}
+
+message NFSv4LinuxMountConfiguration {
+  // Additional mount options to apply. Please refer to the nfs(5)
+  // manual page for more details.
+  //
+  // Recommended value: ["vers=4.1"]
+  repeated string mount_options = 1;
 }
 
 message RPCv2SystemAuthenticationConfiguration {

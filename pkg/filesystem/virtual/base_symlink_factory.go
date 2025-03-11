@@ -5,9 +5,7 @@ import (
 	"unicode/utf8"
 
 	remoteexecution "github.com/bazelbuild/remote-apis/build/bazel/remote/execution/v2"
-	"github.com/buildbarn/bb-remote-execution/pkg/proto/outputpathpersistency"
-	"github.com/buildbarn/bb-remote-execution/pkg/proto/remoteoutputservice"
-	"github.com/buildbarn/bb-storage/pkg/digest"
+	"github.com/buildbarn/bb-remote-execution/pkg/proto/bazeloutputservice"
 	"github.com/buildbarn/bb-storage/pkg/filesystem"
 	"github.com/buildbarn/bb-storage/pkg/filesystem/path"
 
@@ -17,7 +15,7 @@ import (
 
 type symlinkFactory struct{}
 
-func (symlinkFactory) LookupSymlink(target []byte) NativeLeaf {
+func (symlinkFactory) LookupSymlink(target []byte) LinkableLeaf {
 	return symlink{target: target}
 }
 
@@ -30,34 +28,23 @@ type symlink struct {
 	target []byte
 }
 
-func (f symlink) Readlink() (string, error) {
+func (f symlink) readlinkParser() (path.Parser, error) {
 	if !utf8.Valid(f.target) {
-		return "", status.Error(codes.InvalidArgument, "Symbolic link contents are not valid UTF-8")
+		return nil, status.Error(codes.InvalidArgument, "Symbolic link contents are not valid UTF-8")
 	}
-	return string(f.target), nil
+	return path.UNIXFormat.NewParser(string(f.target)), nil
 }
 
-func (f symlink) GetOutputServiceFileStatus(digestFunction *digest.Function) (*remoteoutputservice.FileStatus, error) {
-	target, err := f.Readlink()
+func (f symlink) readlinkString() (string, error) {
+	targetParser, err := f.readlinkParser()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return &remoteoutputservice.FileStatus{
-		FileType: &remoteoutputservice.FileStatus_Symlink_{
-			Symlink: &remoteoutputservice.FileStatus_Symlink{
-				Target: target,
-			},
-		},
-	}, nil
-}
-
-func (f symlink) AppendOutputPathPersistencyDirectoryNode(directory *outputpathpersistency.Directory, name path.Component) {
-	if target, err := f.Readlink(); err == nil {
-		directory.Symlinks = append(directory.Symlinks, &remoteexecution.SymlinkNode{
-			Name:   name.String(),
-			Target: target,
-		})
+	targetPath, scopeWalker := path.EmptyBuilder.Join(path.VoidScopeWalker)
+	if err := path.Resolve(targetParser, scopeWalker); err != nil {
+		return "", err
 	}
+	return targetPath.GetUNIXString(), nil
 }
 
 func (f symlink) VirtualGetAttributes(ctx context.Context, requested AttributesMask, attributes *Attributes) {
@@ -77,4 +64,33 @@ func (f symlink) VirtualSetAttributes(ctx context.Context, in *Attributes, reque
 	}
 	f.VirtualGetAttributes(ctx, requested, out)
 	return StatusOK
+}
+
+func (f symlink) VirtualApply(data any) bool {
+	switch p := data.(type) {
+	case *ApplyReadlink:
+		p.Target, p.Err = f.readlinkParser()
+	case *ApplyGetBazelOutputServiceStat:
+		if target, err := f.readlinkString(); err == nil {
+			p.Stat = &bazeloutputservice.BatchStatResponse_Stat{
+				Type: &bazeloutputservice.BatchStatResponse_Stat_Symlink_{
+					Symlink: &bazeloutputservice.BatchStatResponse_Stat_Symlink{
+						Target: target,
+					},
+				},
+			}
+		} else {
+			p.Err = err
+		}
+	case *ApplyAppendOutputPathPersistencyDirectoryNode:
+		if target, err := f.readlinkString(); err == nil {
+			p.Directory.Symlinks = append(p.Directory.Symlinks, &remoteexecution.SymlinkNode{
+				Name:   p.Name.String(),
+				Target: target,
+			})
+		}
+	default:
+		return f.placeholderFile.VirtualApply(data)
+	}
+	return true
 }

@@ -59,7 +59,7 @@ func (s *inMemorySubtree) createNewDirectory(initialContentsFetcher InitialConte
 
 // inMemoryDirectoryChild contains exactly one reference to an object
 // that's embedded in a parent directory.
-type inMemoryDirectoryChild = Child[*inMemoryPrepopulatedDirectory, NativeLeaf, Node]
+type inMemoryDirectoryChild = Child[*inMemoryPrepopulatedDirectory, LinkableLeaf, Node]
 
 // inMemoryDirectoryEntry is a directory entry for an object stored in
 // inMemoryDirectoryContents.
@@ -167,7 +167,7 @@ func (c *inMemoryDirectoryContents) isDeletable(hiddenFilesMatcher StringMatcher
 	return true
 }
 
-func (c *inMemoryDirectoryContents) createChildren(subtree *inMemorySubtree, children map[path.Component]InitialNode) {
+func (c *inMemoryDirectoryContents) createChildren(subtree *inMemorySubtree, children map[path.Component]InitialChild) {
 	// Either sort or shuffle the children before inserting them
 	// into the directory. This either makes VirtualReadDir() behave
 	// deterministically, or not, based on preference.
@@ -249,7 +249,7 @@ func (c *inMemoryDirectoryContents) getDirectoriesAndLeavesCount(hiddenFilesMatc
 // locks (e.g., Rename() locking up to three directories), util.LockPile
 // is used for deadlock avoidance. To ensure consistency, locks on one
 // or more directories may be held when calling into the FileAllocator
-// or NativeLeaf nodes.
+// or LinkableLeaf nodes.
 type inMemoryPrepopulatedDirectory struct {
 	subtree *inMemorySubtree
 	handle  StatefulDirectoryHandle
@@ -519,7 +519,7 @@ func (i *inMemoryPrepopulatedDirectory) InstallHooks(fileAllocator FileAllocator
 	}
 }
 
-func (i *inMemoryPrepopulatedDirectory) CreateChildren(children map[path.Component]InitialNode, overwrite bool) error {
+func (i *inMemoryPrepopulatedDirectory) CreateChildren(children map[path.Component]InitialChild, overwrite bool) error {
 	i.lock.Lock()
 	contents, err := i.getContents()
 	if err != nil {
@@ -598,7 +598,7 @@ func (i *inMemoryPrepopulatedDirectory) filterChildrenRecursive(childFilter Chil
 		// instantiate it. Simply provide the
 		// InitialContentsFetcher to the callback.
 		i.lock.Unlock()
-		return childFilter(InitialNode{}.FromDirectory(initialContentsFetcher), func() error {
+		return childFilter(InitialChild{}.FromDirectory(initialContentsFetcher), func() error {
 			return i.RemoveAllChildren(false)
 		})
 	}
@@ -606,7 +606,7 @@ func (i *inMemoryPrepopulatedDirectory) filterChildrenRecursive(childFilter Chil
 	// Directory is already initialized. Gather the contents.
 	type leafInfo struct {
 		name path.Component
-		leaf NativeLeaf
+		leaf LinkableLeaf
 	}
 	directoriesCount, leavesCount := i.contents.getDirectoriesAndLeavesCount(i.subtree.filesystem.hiddenFilesMatcher)
 	directories := make([]*inMemoryPrepopulatedDirectory, 0, directoriesCount)
@@ -626,7 +626,7 @@ func (i *inMemoryPrepopulatedDirectory) filterChildrenRecursive(childFilter Chil
 	// Invoke the callback for all children.
 	for _, child := range leaves {
 		name := child.name
-		if !childFilter(InitialNode{}.FromLeaf(child.leaf), func() error {
+		if !childFilter(InitialChild{}.FromLeaf(child.leaf), func() error {
 			return i.Remove(name)
 		}) {
 			return false
@@ -738,8 +738,12 @@ func (i *inMemoryPrepopulatedDirectory) virtualGetAttributesLocked(requested Att
 	attributes.SetLastDataModificationTime(i.contents.lastDataModificationTime)
 }
 
+func (inMemoryPrepopulatedDirectory) VirtualApply(data any) bool {
+	return false
+}
+
 func (i *inMemoryPrepopulatedDirectory) VirtualLink(ctx context.Context, name path.Component, leaf Leaf, requested AttributesMask, out *Attributes) (ChangeInfo, Status) {
-	child, ok := leaf.(NativeLeaf)
+	child, ok := leaf.(LinkableLeaf)
 	if !ok {
 		// The file is not the kind that can be embedded into
 		// inMemoryPrepopulatedDirectory.
@@ -851,7 +855,7 @@ func (i *inMemoryPrepopulatedDirectory) VirtualMknod(ctx context.Context, name p
 	// therefore consider it to be stateful, like a writable file.
 	child := i.subtree.filesystem.statefulHandleAllocator.
 		New().
-		AsNativeLeaf(NewSpecialFile(fileType, nil))
+		AsLinkableLeaf(NewSpecialFile(fileType, nil))
 	changeIDBefore := contents.changeID
 	contents.attach(i.subtree, name, inMemoryDirectoryChild{}.FromLeaf(child))
 

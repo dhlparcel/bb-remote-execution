@@ -7,7 +7,6 @@ import (
 	"context"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -16,116 +15,39 @@ import (
 	"github.com/buildbarn/bb-storage/pkg/util"
 
 	"golang.org/x/sys/unix"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
-
-// getExecutablePath returns the path of an executable within a given
-// search path that is part of the PATH environment variable.
-func getExecutablePath(baseDirectory *path.Builder, searchPathStr, argv0 string) (string, error) {
-	searchPath, scopeWalker := baseDirectory.Join(path.VoidScopeWalker)
-	if err := path.Resolve(searchPathStr, scopeWalker); err != nil {
-		return "", err
-	}
-	executablePath, scopeWalker := searchPath.Join(path.VoidScopeWalker)
-	if err := path.Resolve(argv0, scopeWalker); err != nil {
-		return "", err
-	}
-	return executablePath.String(), nil
-}
-
-// lookupExecutable returns the path of an executable, taking the PATH
-// environment variable into account.
-func lookupExecutable(workingDirectory *path.Builder, pathVariable, argv0 string) (string, error) {
-	if strings.ContainsRune(argv0, os.PathSeparator) {
-		// No PATH processing needs to be performed.
-		return argv0, nil
-	}
-
-	// Executable path does not contain any slashes. Perform PATH
-	// lookups.
-	//
-	// We cannot use exec.LookPath() directly, as that function
-	// disregards the working directory of the action. It also uses
-	// the PATH environment variable of the current process, as
-	// opposed to respecting the value that is provided as part of
-	// the action. Do call into this function to validate the
-	// existence of the executable.
-	for _, searchPathStr := range filepath.SplitList(pathVariable) {
-		executablePathAbs, err := getExecutablePath(workingDirectory, searchPathStr, argv0)
-		if err != nil {
-			return "", util.StatusWrapf(err, "Failed to resolve executable %#v in search path %#v", argv0, searchPathStr)
-		}
-		if _, err := exec.LookPath(executablePathAbs); err == nil {
-			// Regular compiled executables will receive the
-			// argv[0] that we provide, but scripts starting
-			// with '#!' will receive the literal executable
-			// path.
-			//
-			// Most shells seem to guarantee that if argv[0]
-			// is relative, the executable path is relative
-			// as well. Prevent these scripts from breaking
-			// by recomputing the executable path once more,
-			// but relative.
-			executablePathRel, err := getExecutablePath(&path.EmptyBuilder, searchPathStr, argv0)
-			if err != nil {
-				return "", util.StatusWrapf(err, "Failed to resolve executable %#v in search path %#v", argv0, searchPathStr)
-			}
-			return executablePathRel, nil
-		}
-	}
-	return "", status.Errorf(codes.InvalidArgument, "Cannot find executable %#v in search paths %#v", argv0, pathVariable)
-}
-
-// NewPlainCommandCreator returns a CommandCreator for cases where we don't
-// need to chroot into the input root directory.
-func NewPlainCommandCreator(sysProcAttr *syscall.SysProcAttr) CommandCreator {
-	return func(ctx context.Context, arguments []string, inputRootDirectory *path.Builder, workingDirectoryStr, pathVariable string) (*exec.Cmd, error) {
-		workingDirectory, scopeWalker := inputRootDirectory.Join(path.VoidScopeWalker)
-		if err := path.Resolve(workingDirectoryStr, scopeWalker); err != nil {
-			return nil, util.StatusWrap(err, "Failed to resolve working directory")
-		}
-		executablePath, err := lookupExecutable(workingDirectory, pathVariable, arguments[0])
-		if err != nil {
-			return nil, err
-		}
-
-		// exec.CommandContext() has some smartness to call
-		// exec.LookPath() under the hood, which we don't want.
-		// Call it with a placeholder path, followed by setting
-		// cmd.Path and cmd.Args manually. This ensures that our
-		// own values remain respected.
-		cmd := exec.CommandContext(ctx, "/nonexistent")
-		cmd.Args = arguments
-		cmd.Dir = workingDirectory.String()
-		cmd.Path = executablePath
-		cmd.SysProcAttr = sysProcAttr
-		return cmd, nil
-	}
-}
 
 // NewChrootedCommandCreator returns a CommandCreator for cases where we
 // need to chroot into the input root directory.
 func NewChrootedCommandCreator(sysProcAttr *syscall.SysProcAttr) (CommandCreator, error) {
-	return func(ctx context.Context, arguments []string, inputRootDirectory *path.Builder, workingDirectoryStr, pathVariable string) (*exec.Cmd, error) {
+	return func(ctx context.Context, arguments []string, inputRootDirectory *path.Builder, workingDirectoryParser path.Parser, pathVariable string) (*exec.Cmd, error) {
 		// The addition of /usr/bin/env is necessary as the PATH resolution
 		// will take place prior to the chroot, so the executable may not be
 		// found by exec.LookPath() inside exec.CommandContext() and may
 		// cause cmd.Start() to fail when it shouldn't.
 		// https://github.com/golang/go/issues/39341
 		cmd := exec.CommandContext(ctx, "/usr/bin/env", append([]string{"--"}, arguments...)...)
+
+		inputRootDirectoryStr, err := path.LocalFormat.GetString(inputRootDirectory)
+		if err != nil {
+			return nil, util.StatusWrap(err, "Failed to create local representation of input root directory")
+		}
 		sysProcAttrCopy := *sysProcAttr
-		sysProcAttrCopy.Chroot = inputRootDirectory.String()
+		sysProcAttrCopy.Chroot = inputRootDirectoryStr
 		cmd.SysProcAttr = &sysProcAttrCopy
 
 		// Set the working relative to be relative to the root
 		// directory of the chrooted environment.
 		workingDirectory, scopeWalker := path.RootBuilder.Join(path.VoidScopeWalker)
-		if err := path.Resolve(workingDirectoryStr, scopeWalker); err != nil {
+		if err := path.Resolve(workingDirectoryParser, scopeWalker); err != nil {
 			return nil, util.StatusWrap(err, "Failed to resolve working directory")
 		}
-		cmd.Dir = workingDirectory.String()
+		workingDirectoryStr, err := path.LocalFormat.GetString(workingDirectory)
+		if err != nil {
+			return nil, util.StatusWrap(err, "Failed to create local representation of working directory")
+		}
+		cmd.Dir = workingDirectoryStr
 		return cmd, nil
 	}, nil
 }

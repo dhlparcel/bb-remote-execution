@@ -1,7 +1,7 @@
 # gazelle:ignore
 
-load("@io_bazel_rules_go//extras:gomock.bzl", "gomock")
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@rules_go//extras:gomock.bzl", "gomock")
+load("@rules_go//go:def.bzl", "go_library")
 
 gomock(
     name = "aliases",
@@ -12,6 +12,8 @@ gomock(
         "ReadCloser",
     ],
     library = "//internal/mock/aliases",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -22,6 +24,8 @@ gomock(
         "Authorizer",
     ],
     library = "@com_github_buildbarn_bb_storage//pkg/auth",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -30,6 +34,8 @@ gomock(
     out = "blobstore.go",
     interfaces = ["BlobAccess"],
     library = "@com_github_buildbarn_bb_storage//pkg/blobstore",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -38,6 +44,8 @@ gomock(
     out = "blobstore_slicing.go",
     interfaces = ["BlobSlicer"],
     library = "@com_github_buildbarn_bb_storage//pkg/blobstore/slicing",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -46,6 +54,8 @@ gomock(
     out = "blockdevice.go",
     interfaces = ["BlockDevice"],
     library = "@com_github_buildbarn_bb_storage//pkg/blockdevice",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -62,6 +72,8 @@ gomock(
         "UploadableDirectory",
     ],
     library = "//pkg/builder",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -75,6 +87,8 @@ gomock(
         "FileFetcher",
     ],
     library = "//pkg/cas",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -86,6 +100,8 @@ gomock(
         "ProcessTable",
     ],
     library = "//pkg/cleaner",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -97,6 +113,8 @@ gomock(
         "Timer",
     ],
     library = "@com_github_buildbarn_bb_storage//pkg/clock",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -105,6 +123,8 @@ gomock(
     out = "clock_re.go",
     interfaces = ["Suspendable"],
     library = "//pkg/clock",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -113,6 +133,8 @@ gomock(
     out = "completedactionlogger.go",
     interfaces = ["CompletedActionLogger_LogCompletedActionsClient"],
     library = "//pkg/proto/completedactionlogger",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -127,6 +149,8 @@ gomock(
         "FileWriter",
     ],
     library = "@com_github_buildbarn_bb_storage//pkg/filesystem",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -138,6 +162,8 @@ gomock(
         "UnreadDirectoryMonitor",
     ],
     library = "//pkg/filesystem/access",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -150,6 +176,8 @@ gomock(
         "SectorAllocator",
     ],
     library = "//pkg/filesystem",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -170,7 +198,7 @@ gomock(
         "HandleResolver",
         "InitialContentsFetcher",
         "Leaf",
-        "NativeLeaf",
+        "LinkableLeaf",
         "ResolvableHandleAllocation",
         "ResolvableHandleAllocator",
         "StatefulDirectoryHandle",
@@ -185,6 +213,8 @@ gomock(
         "Directory": "MockVirtualDirectory",
         "Leaf": "MockVirtualLeaf",
     },
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -198,6 +228,8 @@ gomock(
         "ServerCallbacks",
     ],
     library = "@com_github_hanwen_go_fuse_v2//fuse",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
     tags = ["manual"],
 )
@@ -210,6 +242,8 @@ gomock(
         "ClientStream",
     ],
     library = "@org_golang_google_grpc//:grpc",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -224,6 +258,8 @@ gomock(
         "StrategyCalculator",
     ],
     library = "//pkg/scheduler/initialsizeclass",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -233,6 +269,8 @@ gomock(
     interfaces = ["KeyExtractor"],
     library = "//pkg/scheduler/platform",
     mock_names = {"KeyExtractor": "MockPlatformKeyExtractor"},
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -244,6 +282,8 @@ gomock(
         "ThreadSafeGenerator",
     ],
     library = "@com_github_buildbarn_bb_storage//pkg/random",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -254,7 +294,9 @@ gomock(
         "Execution_ExecuteServer",
         "Execution_WaitExecutionServer",
     ],
-    library = "@com_github_bazelbuild_remote_apis//build/bazel/remote/execution/v2:execution",
+    library = "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -263,6 +305,8 @@ gomock(
     out = "remoteworker.go",
     interfaces = ["OperationQueueClient"],
     library = "//pkg/proto/remoteworker",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -271,6 +315,8 @@ gomock(
     out = "routing.go",
     interfaces = ["ActionRouter"],
     library = "//pkg/scheduler/routing",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -279,6 +325,8 @@ gomock(
     out = "runner.go",
     interfaces = ["AppleXcodeSDKRootResolver"],
     library = "//pkg/runner",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -290,6 +338,8 @@ gomock(
         "RunnerServer",
     ],
     library = "//pkg/proto/runner",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -298,6 +348,8 @@ gomock(
     out = "storage_builder.go",
     interfaces = ["BuildQueue"],
     library = "@com_github_buildbarn_bb_storage//pkg/builder",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -309,6 +361,8 @@ gomock(
         "UUIDGenerator",
     ],
     library = "@com_github_buildbarn_bb_storage//pkg/util",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -317,6 +371,8 @@ gomock(
     out = "sync.go",
     interfaces = ["TryLocker"],
     library = "//pkg/sync",
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -329,6 +385,13 @@ gomock(
         "TracerProvider",
     ],
     library = "@io_opentelemetry_go_otel_trace//:trace",
+    mock_names = {
+        "Span": "BareMockSpan",
+        "Tracer": "BareMockTracer",
+        "TracerProvider": "BareMockTracerProvider",
+    },
+    mockgen_model_library = "@org_uber_go_mock//mockgen/model",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
     package = "mock",
 )
 
@@ -363,11 +426,12 @@ go_library(
         ":storage_util.go",
         ":sync.go",
         ":trace.go",
+        ":trace_wrap.go",
     ] + select({
-        "@io_bazel_rules_go//go/platform:darwin": [
+        "@rules_go//go/platform:darwin": [
             ":fuse.go",
         ],
-        "@io_bazel_rules_go//go/platform:linux": [
+        "@rules_go//go/platform:linux": [
             ":fuse.go",
         ],
         "//conditions:default": [],
@@ -382,17 +446,17 @@ go_library(
         "//pkg/filesystem",
         "//pkg/filesystem/access",
         "//pkg/filesystem/virtual",
+        "//pkg/proto/bazeloutputservice",
         "//pkg/proto/buildqueuestate",
         "//pkg/proto/cas",
         "//pkg/proto/completedactionlogger",
         "//pkg/proto/outputpathpersistency",
-        "//pkg/proto/remoteoutputservice",
         "//pkg/proto/remoteworker",
         "//pkg/proto/runner",
         "//pkg/scheduler/initialsizeclass",
         "//pkg/scheduler/invocation",
         "//pkg/scheduler/platform",
-        "@com_github_bazelbuild_remote_apis//build/bazel/remote/execution/v2:execution",
+        "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
         "@com_github_buildbarn_bb_storage//pkg/blobstore",
         "@com_github_buildbarn_bb_storage//pkg/blobstore/buffer",
         "@com_github_buildbarn_bb_storage//pkg/blobstore/slicing",
@@ -403,21 +467,22 @@ go_library(
         "@com_github_buildbarn_bb_storage//pkg/filesystem/path",
         "@com_github_buildbarn_bb_storage//pkg/proto/iscc",
         "@com_github_buildbarn_bb_storage//pkg/util",
-        "@com_github_golang_mock//gomock",
         "@com_github_google_uuid//:uuid",
         "@com_google_cloud_go_longrunning//autogen/longrunningpb",
         "@io_opentelemetry_go_otel//attribute",
         "@io_opentelemetry_go_otel//codes",
         "@io_opentelemetry_go_otel_trace//:trace",
+        "@io_opentelemetry_go_otel_trace//embedded",
         "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//metadata",
         "@org_golang_google_protobuf//types/known/anypb:go_default_library",
         "@org_golang_google_protobuf//types/known/emptypb:go_default_library",
+        "@org_uber_go_mock//gomock",
     ] + select({
-        "@io_bazel_rules_go//go/platform:darwin": [
+        "@rules_go//go/platform:darwin": [
             "@com_github_hanwen_go_fuse_v2//fuse",
         ],
-        "@io_bazel_rules_go//go/platform:linux": [
+        "@rules_go//go/platform:linux": [
             "@com_github_hanwen_go_fuse_v2//fuse",
         ],
         "//conditions:default": [],

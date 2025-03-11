@@ -1,7 +1,6 @@
-load("@com_github_buildbarn_bb_storage//tools:container.bzl", "container_push_official")
-load("@io_bazel_rules_docker//go:image.bzl", "go_image")
-load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
-load("@npm//:purgecss/package_json.bzl", purgecss_bin = "bin")
+load("@com_github_buildbarn_bb_remote_execution_npm//:purgecss/package_json.bzl", purgecss_bin = "bin")
+load("@com_github_buildbarn_bb_storage//tools:container.bzl", "container_push_official", "multiarch_go_image")
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
 
 go_library(
     name = "bb_scheduler_lib",
@@ -35,7 +34,7 @@ go_library(
         "//pkg/scheduler/initialsizeclass",
         "//pkg/scheduler/routing",
         "//pkg/util",
-        "@com_github_bazelbuild_remote_apis//build/bazel/remote/execution/v2:execution",
+        "@bazel_remote_apis//build/bazel/remote/execution/v2:remote_execution_go_proto",
         "@com_github_buildbarn_bb_storage//pkg/auth",
         "@com_github_buildbarn_bb_storage//pkg/blobstore/configuration",
         "@com_github_buildbarn_bb_storage//pkg/capabilities",
@@ -50,7 +49,7 @@ go_library(
         "@com_github_buildbarn_bb_storage//pkg/util",
         "@com_github_google_uuid//:uuid",
         "@com_github_gorilla_mux//:mux",
-        "@org_golang_google_grpc//:go_default_library",
+        "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//status",
         "@org_golang_google_protobuf//encoding/protojson",
@@ -90,11 +89,9 @@ go_binary(
     visibility = ["//visibility:public"],
 )
 
-go_image(
+multiarch_go_image(
     name = "bb_scheduler_container",
-    embed = [":bb_scheduler_lib"],
-    pure = "on",
-    visibility = ["//visibility:public"],
+    binary = ":bb_scheduler",
 )
 
 container_push_official(

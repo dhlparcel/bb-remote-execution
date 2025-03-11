@@ -69,6 +69,17 @@ message ApplicationConfiguration {
   // for more details around the Completed Action Logger service.
   repeated CompletedActionLoggingConfiguration completed_action_loggers = 23;
 
+  // When native build directories are used, the maximum number of
+  // concurrent files to instantiate in input roots.
+  //
+  // When virtual build directories (FUSE/NFSv4) are used, the maximum
+  // number of concurrent files to read from the Content Addressable
+  // Storage (CAS) while prefetching.
+  //
+  // This limit applied to the worker process as a whole; not individual
+  // worker threads.
+  int64 input_download_concurrency = 28;
+
   // The maximum number of concurrent writes to issue against the
   // Content Addressable Storage (CAS). This limit applies to the worker
   // process as a whole; not individual worker threads.
@@ -99,6 +110,51 @@ message ApplicationConfiguration {
   // directories that are expected to be used are prefetched. This
   // process takes place in the background, while the action is running.
   PrefetchingConfiguration prefetching = 26;
+
+  // If set, upload output directories to the Content Addressable
+  // Storage (CAS) in the form of a single REv2 Tree object and multiple
+  // REv2 Directory objects, even if the client did not request it. If
+  // unset, this is only done if explicitly requested by the client.
+  //
+  // Traditionally, clients upload input roots of actions to the CAS in
+  // the form of many small Directory objects. This differs from how
+  // workers encode output directories, as these are stored in the form
+  // of a single Tree object.
+  //
+  // Though storing output directories in the form of Tree objects
+  // allows clients to download output directories with fewer round
+  // trips, it does make it impossible for clients that use a "Builds
+  // without the Bytes" strategy to efficiently embed output directories
+  // into input roots of subsequent actions. Clients must download the
+  // Tree object, unpack it, and reupload the containing Directory
+  // objects back into the CAS.
+  //
+  // To solve this, newer versions of REv2 add the ability to let
+  // clients specify the format in which they want receive output
+  // directories: as a single Tree object, multiple Directory objects,
+  // or both. bb_worker respects this, though it will always upload Tree
+  // objects, even if the client only requests Directory objects. The
+  // reason being that bb_storage's CompletenessCheckingBlobAccess can
+  // only operate efficiently if it has access to the Tree object.
+  //
+  // Forcefully uploading Directory messages into the CAS has several
+  // advantages:
+  //
+  // - bb_browser is capable of displaying listings of individual
+  //   directories contained in an output directory without needing to
+  //   load the full Tree object from the CAS.
+  //
+  // - Root directories of output directories created through
+  //   bb_clientd's Bazel Output Service feature load slightly faster,
+  //   as they can be validated without processing full Tree objects.
+  //
+  // - Even for clients that only support output directories in the form
+  //   of Tree messages, having Directory messages present means that
+  //   subsequent build actions need to upload fewer objects.
+  //
+  // The disadvantage of enabling this option is that a larger number of
+  // objects are written into the CAS.
+  bool force_upload_trees_and_directories = 27;
 }
 
 message BuildDirectoryConfiguration {
@@ -211,6 +267,24 @@ message VirtualBuildDirectoryConfiguration {
   // - macOS: ^\._|^\.nfs\.[0-9a-f]{8}\.[0-9a-f]{4}$
   // - Other platforms: unset
   string hidden_files_pattern = 4;
+
+  // The maximum amount of time to delay uploading of output files that
+  // are still opened for writing after the action completes. This can
+  // occur when the kernel closes file descriptors asynchronously. As
+  // files may still have dirty pages associated with them, uploading
+  // them immediately would cause data to get lost.
+  //
+  // This configuration option puts a bound on the maximum amount of
+  // time bb_worker is willing to wait for these files to be closed.
+  // This limit exists to ensure that files that are opened indefinitely
+  // don't cause the worker to also remain blocked indefinitely. This
+  // could happen if the build action daemonizes and bb_runner's
+  // clean_process_table option is disabled, or if file descriptor
+  // passing (SCM_RIGHTS) is used to pass file descriptors to processes
+  // outside the control of the worker.
+  //
+  // Recommended value: 60s.
+  google.protobuf.Duration maximum_writable_file_upload_delay = 5;
 }
 
 message RunnerConfiguration {
@@ -362,8 +436,7 @@ message PrefetchingConfiguration {
   // Recommended value: 65536
   uint32 bloom_filter_maximum_size_bytes = 3;
 
-  // The maximum number of concurrent files to read from the Content
-  // Addressable Storage (CAS) while prefetching. This limit applied to
-  // the worker process as a whole; not individual worker threads.
-  int64 download_concurrency = 4;
+  // Was 'download_concurrency'. This option has been moved to
+  // 'input_download_concurrency' in ApplicationConfiguration.
+  reserved 4;
 }

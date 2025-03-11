@@ -141,6 +141,14 @@ var (
 			Help:      "Number of workers created by Synchronize().",
 		},
 		[]string{"instance_name_prefix", "platform", "size_class"})
+	inMemoryBuildQueueWorkersTerminatingTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "buildbarn",
+			Subsystem: "builder",
+			Name:      "in_memory_build_queue_workers_terminating_total",
+			Help:      "Number of workers that have entered the terminating state.",
+		},
+		[]string{"instance_name_prefix", "platform", "size_class"})
 	inMemoryBuildQueueWorkersRemovedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "buildbarn",
@@ -290,6 +298,7 @@ func NewInMemoryBuildQueue(contentAddressableStorage blobstore.BlobAccess, clock
 		prometheus.MustRegister(inMemoryBuildQueueTasksCompletedDurationSeconds)
 
 		prometheus.MustRegister(inMemoryBuildQueueWorkersCreatedTotal)
+		prometheus.MustRegister(inMemoryBuildQueueWorkersTerminatingTotal)
 		prometheus.MustRegister(inMemoryBuildQueueWorkersRemovedTotal)
 
 		prometheus.MustRegister(inMemoryBuildQueueWorkerInvocationStickinessRetained)
@@ -329,7 +338,16 @@ var (
 // capable of using multiple size classes, as a maximum size class and
 // initialsizeclass.Analyzer can be provided for specifying how
 // operations are assigned to size classes.
-func (bq *InMemoryBuildQueue) RegisterPredeclaredPlatformQueue(instanceNamePrefix digest.InstanceName, platformMessage *remoteexecution.Platform, workerInvocationStickinessLimits []time.Duration, maximumQueuedBackgroundLearningOperations int, backgroundLearningOperationPriority int32, maximumSizeClass uint32) error {
+func (bq *InMemoryBuildQueue) RegisterPredeclaredPlatformQueue(instanceNamePrefix digest.InstanceName, platformMessage *remoteexecution.Platform, workerInvocationStickinessLimits []time.Duration, maximumQueuedBackgroundLearningOperations int, backgroundLearningOperationPriority int32, sizeClasses []uint32) error {
+	if len(sizeClasses) < 1 {
+		return status.Error(codes.InvalidArgument, "No size classes provided")
+	}
+	for i := 1; i < len(sizeClasses); i++ {
+		if sizeClasses[i-1] >= sizeClasses[i] {
+			return status.Error(codes.InvalidArgument, "Size classes must be provided in sorted order")
+		}
+	}
+
 	platformKey, err := platform.NewKey(instanceNamePrefix, platformMessage)
 	if err != nil {
 		return err
@@ -343,7 +361,9 @@ func (bq *InMemoryBuildQueue) RegisterPredeclaredPlatformQueue(instanceNamePrefi
 	}
 
 	pq := bq.addPlatformQueue(platformKey, workerInvocationStickinessLimits, maximumQueuedBackgroundLearningOperations, backgroundLearningOperationPriority)
-	pq.addSizeClassQueue(bq, maximumSizeClass, false)
+	for _, sizeClass := range sizeClasses {
+		pq.addSizeClassQueue(bq, sizeClass, false)
+	}
 	return nil
 }
 
@@ -1178,7 +1198,7 @@ func (bq *InMemoryBuildQueue) TerminateWorkers(ctx context.Context, request *bui
 	for _, scq := range bq.sizeClassQueues {
 		for workerKey, w := range scq.workers {
 			if workerMatchesPattern(workerKey.getWorkerID(), request.WorkerIdPattern) {
-				w.terminating = true
+				scq.markWorkerTerminating(w)
 				if t := w.currentTask; t != nil {
 					// The task will be at the
 					// EXECUTING stage, so it can
@@ -1381,6 +1401,7 @@ func (pq *platformQueue) addSizeClassQueue(bq *InMemoryBuildQueue, sizeClass uin
 		tasksCompletedDurationSeconds: inMemoryBuildQueueTasksCompletedDurationSeconds.WithLabelValues(instanceNamePrefix, platformStr, sizeClassStr),
 
 		workersCreatedTotal:          inMemoryBuildQueueWorkersCreatedTotal.WithLabelValues(instanceNamePrefix, platformStr, sizeClassStr),
+		workersTerminatingTotal:      inMemoryBuildQueueWorkersTerminatingTotal.WithLabelValues(instanceNamePrefix, platformStr, sizeClassStr),
 		workersRemovedIdleTotal:      inMemoryBuildQueueWorkersRemovedTotal.WithLabelValues(instanceNamePrefix, platformStr, sizeClassStr, "Idle"),
 		workersRemovedExecutingTotal: inMemoryBuildQueueWorkersRemovedTotal.WithLabelValues(instanceNamePrefix, platformStr, sizeClassStr, "Executing"),
 
@@ -1469,6 +1490,7 @@ type sizeClassQueue struct {
 	tasksCompletedDurationSeconds prometheus.Observer
 
 	workersCreatedTotal          prometheus.Counter
+	workersTerminatingTotal      prometheus.Counter
 	workersRemovedIdleTotal      prometheus.Counter
 	workersRemovedExecutingTotal prometheus.Counter
 
@@ -1523,6 +1545,7 @@ func (scq *sizeClassQueue) remove(bq *InMemoryBuildQueue) {
 // the InMemoryBuildQueue.
 func (scq *sizeClassQueue) removeStaleWorker(bq *InMemoryBuildQueue, workerKey workerKey, removalTime time.Time) {
 	w := scq.workers[workerKey]
+	scq.markWorkerTerminating(w)
 	if t := w.currentTask; t == nil {
 		scq.workersRemovedIdleTotal.Inc()
 	} else {
@@ -1594,6 +1617,13 @@ func (scq *sizeClassQueue) incrementInvocationsCreatedTotal(depth int) {
 	}
 
 	scq.invocationsMetrics[depth].createdTotal.Inc()
+}
+
+func (scq *sizeClassQueue) markWorkerTerminating(w *worker) {
+	if !w.terminating {
+		scq.workersTerminatingTotal.Inc()
+		w.terminating = true
+	}
 }
 
 // workerKey can be used as a key for maps to uniquely identify a worker
@@ -2103,8 +2133,9 @@ func (o *operation) waitExecution(bq *InMemoryBuildQueue, out remoteexecution.Ex
 		// Construct the longrunningpb.Operation that needs to be
 		// sent back to the client.
 		metadata, err := anypb.New(&remoteexecution.ExecuteOperationMetadata{
-			Stage:        t.getStage(),
-			ActionDigest: t.desiredState.ActionDigest,
+			Stage:          t.getStage(),
+			ActionDigest:   t.desiredState.ActionDigest,
+			DigestFunction: t.desiredState.DigestFunction,
 		})
 		if err != nil {
 			return util.StatusWrap(err, "Failed to marshal execute operation metadata")
@@ -2477,19 +2508,24 @@ func (t *task) complete(bq *InMemoryBuildQueue, executeResponse *remoteexecution
 					// Already running too many background tasks.
 					backgroundInitialSizeClassLearner.Abandoned()
 				} else {
-					backgroundAction := *t.desiredState.Action
-					backgroundAction.DoNotCache = true
-					backgroundAction.Timeout = durationpb.New(backgroundTimeout)
 					backgroundTask := &task{
 						operations:              map[*invocation]*operation{},
 						actionDigest:            t.actionDigest,
-						desiredState:            t.desiredState,
 						targetID:                t.targetID,
 						expectedDuration:        backgroundExpectedDuration,
 						initialSizeClassLearner: backgroundInitialSizeClassLearner,
 						stageChangeWakeup:       make(chan struct{}),
 					}
-					backgroundTask.desiredState.Action = &backgroundAction
+
+					// Set do_not_cache to ensure that
+					// background learning doesn't
+					// overwrite the ActionResult obtained
+					// by the foreground task.
+					proto.Merge(&backgroundTask.desiredState, &t.desiredState)
+					backgroundAction := backgroundTask.desiredState.Action
+					backgroundAction.DoNotCache = true
+					backgroundAction.Timeout = durationpb.New(backgroundTimeout)
+
 					backgroundTask.newOperation(bq, pq.backgroundLearningOperationPriority, backgroundInvocation, true)
 					backgroundTask.schedule(bq)
 				}

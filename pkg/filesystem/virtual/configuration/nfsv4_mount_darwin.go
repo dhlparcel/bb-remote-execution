@@ -159,11 +159,19 @@ func (m *nfsv4Mount) mount(terminationGroup program.Group, rpcServer *rpcserver.
 	}
 	flags.WriteTo(&attrVals)
 
-	// Explicitly request the use of NFSv4.0.
+	// Request the use of the desired NFSv4 protocol minor version.
+	// If no minor version is specified, use the latest version that
+	// is supported by the operating system.
 	attrMask[0] |= 1 << nfs_sys_prot.NFS_MATTR_NFS_VERSION
 	nfs_sys_prot.WriteNfsMattrNfsVersion(&attrVals, 4)
 	attrMask[0] |= 1 << nfs_sys_prot.NFS_MATTR_NFS_MINOR_VERSION
-	nfs_sys_prot.WriteNfsMattrNfsMinorVersion(&attrVals, 0)
+	if msg := osConfiguration.MinorVersion; msg != nil {
+		nfs_sys_prot.WriteNfsMattrNfsMinorVersion(&attrVals, msg.Value)
+	} else if buildVersion.greaterEqual(25, 'A', 117) {
+		nfs_sys_prot.WriteNfsMattrNfsMinorVersion(&attrVals, 1)
+	} else {
+		nfs_sys_prot.WriteNfsMattrNfsMinorVersion(&attrVals, 0)
+	}
 
 	// Set attribute caching durations. This needs to be set at
 	// mount time, as NFSv4 provides no facilities for conveying

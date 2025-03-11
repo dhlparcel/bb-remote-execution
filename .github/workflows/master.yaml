@@ -4,32 +4,28 @@
          "runs-on": "ubuntu-latest",
          "steps": [
             {
-               "name": "Installing Bazel",
-               "run": "curl -L https://github.com/bazelbuild/bazel/releases/download/6.0.0/bazel-6.0.0-linux-x86_64 > ~/bazel && chmod +x ~/bazel && echo ~ >> ${GITHUB_PATH}"
-            },
-            {
                "name": "Check out source code",
                "uses": "actions/checkout@v1"
             },
             {
-               "name": "Restore Bazel cache",
-               "uses": "actions/cache@v1",
-               "with": {
-                  "key": "bazel",
-                  "path": "~/.cache/bazel"
-               }
+               "name": "Installing Bazel",
+               "run": "v=$(cat .bazelversion) && curl -L https://github.com/bazelbuild/bazel/releases/download/${v}/bazel-${v}-linux-x86_64 > ~/bazel && chmod +x ~/bazel && echo ~ >> ${GITHUB_PATH}"
+            },
+            {
+               "name": "Bazel mod tidy",
+               "run": "bazel mod tidy"
             },
             {
                "name": "Gazelle",
-               "run": "bazel run //:gazelle -- update-repos -from_file=go.mod -to_macro go_dependencies.bzl%go_dependencies -prune && bazel run //:gazelle"
+               "run": "rm -f $(find . -name '*.pb.go' | sed -e 's/[^/]*$/BUILD.bazel/') && bazel run //:gazelle"
             },
             {
                "name": "Buildifier",
-               "run": "sed '/^$/d' go_dependencies.bzl > go_dependencies.bzl.new && mv go_dependencies.bzl.new go_dependencies.bzl && bazel run @com_github_bazelbuild_buildtools//:buildifier"
+               "run": "bazel run @com_github_bazelbuild_buildtools//:buildifier"
             },
             {
                "name": "Gofmt",
-               "run": "bazel run @cc_mvdan_gofumpt//:gofumpt -- -lang 1.19 -w -extra $(pwd)"
+               "run": "bazel run @cc_mvdan_gofumpt//:gofumpt -- -w -extra $(pwd)"
             },
             {
                "name": "Clang format",
@@ -41,11 +37,15 @@
             },
             {
                "name": "Protobuf generation",
-               "run": "find . bazel-bin/pkg/proto -name '*.pb.go' -delete || true\nbazel build $(bazel query 'kind(\"go_proto_library\", //...)')\nfind bazel-bin/pkg/proto -name '*.pb.go' | while read f; do\n  cat $f > $(echo $f | sed -e 's|.*/pkg/proto/|pkg/proto/|')\ndone\n"
+               "run": "find . bazel-bin/pkg/proto -name '*.pb.go' -delete || true\nbazel build $(bazel query --output=label 'kind(\"go_proto_library\", //...)')\nfind bazel-bin/pkg/proto -name '*.pb.go' | while read f; do\n  cat $f > $(echo $f | sed -e 's|.*/pkg/proto/|pkg/proto/|')\ndone\n"
+            },
+            {
+               "name": "Embedded asset generation",
+               "run": "bazel build $(git grep '^[[:space:]]*//go:embed ' | sed -e 's|\\(.*\\)/.*//go:embed |//\\1:|' | sort -u)\ngit grep '^[[:space:]]*//go:embed ' | sed -e 's|\\(.*\\)/.*//go:embed |\\1/|' | while read o; do\n  if [ -e \"bazel-bin/$o\" ]; then\n    rm -rf \"$o\"\n    cp -r \"bazel-bin/$o\" \"$o\"\n    find \"$o\" -type f -exec chmod -x {} +\n  fi\ndone\n"
             },
             {
                "name": "Test style conformance",
-               "run": "git diff --exit-code HEAD --"
+               "run": "git add . && git diff --exit-code HEAD --"
             },
             {
                "name": "Golint",
@@ -53,15 +53,15 @@
             },
             {
                "name": "linux_amd64: build and test",
-               "run": "bazel test --test_output=errors --platforms=@io_bazel_rules_go//go/toolchain:linux_amd64 //..."
+               "run": "bazel test --test_output=errors --platforms=@rules_go//go/toolchain:linux_amd64 //..."
             },
             {
                "name": "linux_amd64: copy bb_noop_worker",
-               "run": "rm -f bb_noop_worker && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_amd64 //cmd/bb_noop_worker $(pwd)/bb_noop_worker"
+               "run": "rm -f bb_noop_worker && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_amd64 //cmd/bb_noop_worker $(pwd)/bb_noop_worker"
             },
             {
                "name": "linux_amd64: upload bb_noop_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_noop_worker.linux_amd64",
                   "path": "bb_noop_worker"
@@ -69,11 +69,11 @@
             },
             {
                "name": "linux_amd64: copy bb_runner",
-               "run": "rm -f bb_runner && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_amd64 //cmd/bb_runner $(pwd)/bb_runner"
+               "run": "rm -f bb_runner && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_amd64 //cmd/bb_runner $(pwd)/bb_runner"
             },
             {
                "name": "linux_amd64: upload bb_runner",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_runner.linux_amd64",
                   "path": "bb_runner"
@@ -81,11 +81,11 @@
             },
             {
                "name": "linux_amd64: copy bb_scheduler",
-               "run": "rm -f bb_scheduler && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_amd64 //cmd/bb_scheduler $(pwd)/bb_scheduler"
+               "run": "rm -f bb_scheduler && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_amd64 //cmd/bb_scheduler $(pwd)/bb_scheduler"
             },
             {
                "name": "linux_amd64: upload bb_scheduler",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_scheduler.linux_amd64",
                   "path": "bb_scheduler"
@@ -93,11 +93,11 @@
             },
             {
                "name": "linux_amd64: copy bb_virtual_tmp",
-               "run": "rm -f bb_virtual_tmp && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_amd64 //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp"
+               "run": "rm -f bb_virtual_tmp && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_amd64 //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp"
             },
             {
                "name": "linux_amd64: upload bb_virtual_tmp",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_virtual_tmp.linux_amd64",
                   "path": "bb_virtual_tmp"
@@ -105,11 +105,11 @@
             },
             {
                "name": "linux_amd64: copy bb_worker",
-               "run": "rm -f bb_worker && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_amd64 //cmd/bb_worker $(pwd)/bb_worker"
+               "run": "rm -f bb_worker && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_amd64 //cmd/bb_worker $(pwd)/bb_worker"
             },
             {
                "name": "linux_amd64: upload bb_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_worker.linux_amd64",
                   "path": "bb_worker"
@@ -117,11 +117,11 @@
             },
             {
                "name": "linux_amd64: copy fake_python",
-               "run": "rm -f fake_python && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_amd64 //cmd/fake_python $(pwd)/fake_python"
+               "run": "rm -f fake_python && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_amd64 //cmd/fake_python $(pwd)/fake_python"
             },
             {
                "name": "linux_amd64: upload fake_python",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_python.linux_amd64",
                   "path": "fake_python"
@@ -129,11 +129,11 @@
             },
             {
                "name": "linux_amd64: copy fake_xcrun",
-               "run": "rm -f fake_xcrun && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_amd64 //cmd/fake_xcrun $(pwd)/fake_xcrun"
+               "run": "rm -f fake_xcrun && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_amd64 //cmd/fake_xcrun $(pwd)/fake_xcrun"
             },
             {
                "name": "linux_amd64: upload fake_xcrun",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_xcrun.linux_amd64",
                   "path": "fake_xcrun"
@@ -141,15 +141,15 @@
             },
             {
                "name": "linux_386: build and test",
-               "run": "bazel test --test_output=errors --platforms=@io_bazel_rules_go//go/toolchain:linux_386 //..."
+               "run": "bazel test --test_output=errors --platforms=@rules_go//go/toolchain:linux_386 //..."
             },
             {
                "name": "linux_386: copy bb_noop_worker",
-               "run": "rm -f bb_noop_worker && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_386 //cmd/bb_noop_worker $(pwd)/bb_noop_worker"
+               "run": "rm -f bb_noop_worker && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_386 //cmd/bb_noop_worker $(pwd)/bb_noop_worker"
             },
             {
                "name": "linux_386: upload bb_noop_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_noop_worker.linux_386",
                   "path": "bb_noop_worker"
@@ -157,11 +157,11 @@
             },
             {
                "name": "linux_386: copy bb_runner",
-               "run": "rm -f bb_runner && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_386 //cmd/bb_runner $(pwd)/bb_runner"
+               "run": "rm -f bb_runner && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_386 //cmd/bb_runner $(pwd)/bb_runner"
             },
             {
                "name": "linux_386: upload bb_runner",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_runner.linux_386",
                   "path": "bb_runner"
@@ -169,11 +169,11 @@
             },
             {
                "name": "linux_386: copy bb_scheduler",
-               "run": "rm -f bb_scheduler && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_386 //cmd/bb_scheduler $(pwd)/bb_scheduler"
+               "run": "rm -f bb_scheduler && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_386 //cmd/bb_scheduler $(pwd)/bb_scheduler"
             },
             {
                "name": "linux_386: upload bb_scheduler",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_scheduler.linux_386",
                   "path": "bb_scheduler"
@@ -181,11 +181,11 @@
             },
             {
                "name": "linux_386: copy bb_virtual_tmp",
-               "run": "rm -f bb_virtual_tmp && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_386 //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp"
+               "run": "rm -f bb_virtual_tmp && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_386 //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp"
             },
             {
                "name": "linux_386: upload bb_virtual_tmp",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_virtual_tmp.linux_386",
                   "path": "bb_virtual_tmp"
@@ -193,11 +193,11 @@
             },
             {
                "name": "linux_386: copy bb_worker",
-               "run": "rm -f bb_worker && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_386 //cmd/bb_worker $(pwd)/bb_worker"
+               "run": "rm -f bb_worker && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_386 //cmd/bb_worker $(pwd)/bb_worker"
             },
             {
                "name": "linux_386: upload bb_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_worker.linux_386",
                   "path": "bb_worker"
@@ -205,11 +205,11 @@
             },
             {
                "name": "linux_386: copy fake_python",
-               "run": "rm -f fake_python && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_386 //cmd/fake_python $(pwd)/fake_python"
+               "run": "rm -f fake_python && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_386 //cmd/fake_python $(pwd)/fake_python"
             },
             {
                "name": "linux_386: upload fake_python",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_python.linux_386",
                   "path": "fake_python"
@@ -217,11 +217,11 @@
             },
             {
                "name": "linux_386: copy fake_xcrun",
-               "run": "rm -f fake_xcrun && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_386 //cmd/fake_xcrun $(pwd)/fake_xcrun"
+               "run": "rm -f fake_xcrun && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_386 //cmd/fake_xcrun $(pwd)/fake_xcrun"
             },
             {
                "name": "linux_386: upload fake_xcrun",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_xcrun.linux_386",
                   "path": "fake_xcrun"
@@ -229,15 +229,15 @@
             },
             {
                "name": "linux_arm: build and test",
-               "run": "bazel build --platforms=@io_bazel_rules_go//go/toolchain:linux_arm //..."
+               "run": "bazel build --platforms=@rules_go//go/toolchain:linux_arm //..."
             },
             {
                "name": "linux_arm: copy bb_noop_worker",
-               "run": "rm -f bb_noop_worker && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_arm //cmd/bb_noop_worker $(pwd)/bb_noop_worker"
+               "run": "rm -f bb_noop_worker && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_arm //cmd/bb_noop_worker $(pwd)/bb_noop_worker"
             },
             {
                "name": "linux_arm: upload bb_noop_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_noop_worker.linux_arm",
                   "path": "bb_noop_worker"
@@ -245,11 +245,11 @@
             },
             {
                "name": "linux_arm: copy bb_runner",
-               "run": "rm -f bb_runner && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_arm //cmd/bb_runner $(pwd)/bb_runner"
+               "run": "rm -f bb_runner && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_arm //cmd/bb_runner $(pwd)/bb_runner"
             },
             {
                "name": "linux_arm: upload bb_runner",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_runner.linux_arm",
                   "path": "bb_runner"
@@ -257,11 +257,11 @@
             },
             {
                "name": "linux_arm: copy bb_scheduler",
-               "run": "rm -f bb_scheduler && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_arm //cmd/bb_scheduler $(pwd)/bb_scheduler"
+               "run": "rm -f bb_scheduler && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_arm //cmd/bb_scheduler $(pwd)/bb_scheduler"
             },
             {
                "name": "linux_arm: upload bb_scheduler",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_scheduler.linux_arm",
                   "path": "bb_scheduler"
@@ -269,11 +269,11 @@
             },
             {
                "name": "linux_arm: copy bb_virtual_tmp",
-               "run": "rm -f bb_virtual_tmp && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_arm //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp"
+               "run": "rm -f bb_virtual_tmp && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_arm //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp"
             },
             {
                "name": "linux_arm: upload bb_virtual_tmp",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_virtual_tmp.linux_arm",
                   "path": "bb_virtual_tmp"
@@ -281,11 +281,11 @@
             },
             {
                "name": "linux_arm: copy bb_worker",
-               "run": "rm -f bb_worker && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_arm //cmd/bb_worker $(pwd)/bb_worker"
+               "run": "rm -f bb_worker && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_arm //cmd/bb_worker $(pwd)/bb_worker"
             },
             {
                "name": "linux_arm: upload bb_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_worker.linux_arm",
                   "path": "bb_worker"
@@ -293,11 +293,11 @@
             },
             {
                "name": "linux_arm: copy fake_python",
-               "run": "rm -f fake_python && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_arm //cmd/fake_python $(pwd)/fake_python"
+               "run": "rm -f fake_python && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_arm //cmd/fake_python $(pwd)/fake_python"
             },
             {
                "name": "linux_arm: upload fake_python",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_python.linux_arm",
                   "path": "fake_python"
@@ -305,11 +305,11 @@
             },
             {
                "name": "linux_arm: copy fake_xcrun",
-               "run": "rm -f fake_xcrun && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_arm //cmd/fake_xcrun $(pwd)/fake_xcrun"
+               "run": "rm -f fake_xcrun && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_arm //cmd/fake_xcrun $(pwd)/fake_xcrun"
             },
             {
                "name": "linux_arm: upload fake_xcrun",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_xcrun.linux_arm",
                   "path": "fake_xcrun"
@@ -317,15 +317,15 @@
             },
             {
                "name": "linux_arm64: build and test",
-               "run": "bazel build --platforms=@io_bazel_rules_go//go/toolchain:linux_arm64 //..."
+               "run": "bazel build --platforms=@rules_go//go/toolchain:linux_arm64 //..."
             },
             {
                "name": "linux_arm64: copy bb_noop_worker",
-               "run": "rm -f bb_noop_worker && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_arm64 //cmd/bb_noop_worker $(pwd)/bb_noop_worker"
+               "run": "rm -f bb_noop_worker && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_arm64 //cmd/bb_noop_worker $(pwd)/bb_noop_worker"
             },
             {
                "name": "linux_arm64: upload bb_noop_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_noop_worker.linux_arm64",
                   "path": "bb_noop_worker"
@@ -333,11 +333,11 @@
             },
             {
                "name": "linux_arm64: copy bb_runner",
-               "run": "rm -f bb_runner && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_arm64 //cmd/bb_runner $(pwd)/bb_runner"
+               "run": "rm -f bb_runner && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_arm64 //cmd/bb_runner $(pwd)/bb_runner"
             },
             {
                "name": "linux_arm64: upload bb_runner",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_runner.linux_arm64",
                   "path": "bb_runner"
@@ -345,11 +345,11 @@
             },
             {
                "name": "linux_arm64: copy bb_scheduler",
-               "run": "rm -f bb_scheduler && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_arm64 //cmd/bb_scheduler $(pwd)/bb_scheduler"
+               "run": "rm -f bb_scheduler && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_arm64 //cmd/bb_scheduler $(pwd)/bb_scheduler"
             },
             {
                "name": "linux_arm64: upload bb_scheduler",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_scheduler.linux_arm64",
                   "path": "bb_scheduler"
@@ -357,11 +357,11 @@
             },
             {
                "name": "linux_arm64: copy bb_virtual_tmp",
-               "run": "rm -f bb_virtual_tmp && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_arm64 //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp"
+               "run": "rm -f bb_virtual_tmp && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_arm64 //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp"
             },
             {
                "name": "linux_arm64: upload bb_virtual_tmp",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_virtual_tmp.linux_arm64",
                   "path": "bb_virtual_tmp"
@@ -369,11 +369,11 @@
             },
             {
                "name": "linux_arm64: copy bb_worker",
-               "run": "rm -f bb_worker && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_arm64 //cmd/bb_worker $(pwd)/bb_worker"
+               "run": "rm -f bb_worker && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_arm64 //cmd/bb_worker $(pwd)/bb_worker"
             },
             {
                "name": "linux_arm64: upload bb_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_worker.linux_arm64",
                   "path": "bb_worker"
@@ -381,11 +381,11 @@
             },
             {
                "name": "linux_arm64: copy fake_python",
-               "run": "rm -f fake_python && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_arm64 //cmd/fake_python $(pwd)/fake_python"
+               "run": "rm -f fake_python && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_arm64 //cmd/fake_python $(pwd)/fake_python"
             },
             {
                "name": "linux_arm64: upload fake_python",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_python.linux_arm64",
                   "path": "fake_python"
@@ -393,11 +393,11 @@
             },
             {
                "name": "linux_arm64: copy fake_xcrun",
-               "run": "rm -f fake_xcrun && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:linux_arm64 //cmd/fake_xcrun $(pwd)/fake_xcrun"
+               "run": "rm -f fake_xcrun && bazel run --run_under cp --platforms=@rules_go//go/toolchain:linux_arm64 //cmd/fake_xcrun $(pwd)/fake_xcrun"
             },
             {
                "name": "linux_arm64: upload fake_xcrun",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_xcrun.linux_arm64",
                   "path": "fake_xcrun"
@@ -405,15 +405,15 @@
             },
             {
                "name": "darwin_amd64: build and test",
-               "run": "bazel build --platforms=@io_bazel_rules_go//go/toolchain:darwin_amd64 //..."
+               "run": "bazel build --platforms=@rules_go//go/toolchain:darwin_amd64 //..."
             },
             {
                "name": "darwin_amd64: copy bb_noop_worker",
-               "run": "rm -f bb_noop_worker && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:darwin_amd64 //cmd/bb_noop_worker $(pwd)/bb_noop_worker"
+               "run": "rm -f bb_noop_worker && bazel run --run_under cp --platforms=@rules_go//go/toolchain:darwin_amd64 //cmd/bb_noop_worker $(pwd)/bb_noop_worker"
             },
             {
                "name": "darwin_amd64: upload bb_noop_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_noop_worker.darwin_amd64",
                   "path": "bb_noop_worker"
@@ -421,11 +421,11 @@
             },
             {
                "name": "darwin_amd64: copy bb_runner",
-               "run": "rm -f bb_runner && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:darwin_amd64 //cmd/bb_runner $(pwd)/bb_runner"
+               "run": "rm -f bb_runner && bazel run --run_under cp --platforms=@rules_go//go/toolchain:darwin_amd64 //cmd/bb_runner $(pwd)/bb_runner"
             },
             {
                "name": "darwin_amd64: upload bb_runner",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_runner.darwin_amd64",
                   "path": "bb_runner"
@@ -433,11 +433,11 @@
             },
             {
                "name": "darwin_amd64: copy bb_scheduler",
-               "run": "rm -f bb_scheduler && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:darwin_amd64 //cmd/bb_scheduler $(pwd)/bb_scheduler"
+               "run": "rm -f bb_scheduler && bazel run --run_under cp --platforms=@rules_go//go/toolchain:darwin_amd64 //cmd/bb_scheduler $(pwd)/bb_scheduler"
             },
             {
                "name": "darwin_amd64: upload bb_scheduler",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_scheduler.darwin_amd64",
                   "path": "bb_scheduler"
@@ -445,11 +445,11 @@
             },
             {
                "name": "darwin_amd64: copy bb_virtual_tmp",
-               "run": "rm -f bb_virtual_tmp && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:darwin_amd64 //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp"
+               "run": "rm -f bb_virtual_tmp && bazel run --run_under cp --platforms=@rules_go//go/toolchain:darwin_amd64 //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp"
             },
             {
                "name": "darwin_amd64: upload bb_virtual_tmp",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_virtual_tmp.darwin_amd64",
                   "path": "bb_virtual_tmp"
@@ -457,11 +457,11 @@
             },
             {
                "name": "darwin_amd64: copy bb_worker",
-               "run": "rm -f bb_worker && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:darwin_amd64 //cmd/bb_worker $(pwd)/bb_worker"
+               "run": "rm -f bb_worker && bazel run --run_under cp --platforms=@rules_go//go/toolchain:darwin_amd64 //cmd/bb_worker $(pwd)/bb_worker"
             },
             {
                "name": "darwin_amd64: upload bb_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_worker.darwin_amd64",
                   "path": "bb_worker"
@@ -469,11 +469,11 @@
             },
             {
                "name": "darwin_amd64: copy fake_python",
-               "run": "rm -f fake_python && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:darwin_amd64 //cmd/fake_python $(pwd)/fake_python"
+               "run": "rm -f fake_python && bazel run --run_under cp --platforms=@rules_go//go/toolchain:darwin_amd64 //cmd/fake_python $(pwd)/fake_python"
             },
             {
                "name": "darwin_amd64: upload fake_python",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_python.darwin_amd64",
                   "path": "fake_python"
@@ -481,11 +481,11 @@
             },
             {
                "name": "darwin_amd64: copy fake_xcrun",
-               "run": "rm -f fake_xcrun && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:darwin_amd64 //cmd/fake_xcrun $(pwd)/fake_xcrun"
+               "run": "rm -f fake_xcrun && bazel run --run_under cp --platforms=@rules_go//go/toolchain:darwin_amd64 //cmd/fake_xcrun $(pwd)/fake_xcrun"
             },
             {
                "name": "darwin_amd64: upload fake_xcrun",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_xcrun.darwin_amd64",
                   "path": "fake_xcrun"
@@ -493,15 +493,15 @@
             },
             {
                "name": "darwin_arm64: build and test",
-               "run": "bazel build --platforms=@io_bazel_rules_go//go/toolchain:darwin_arm64 //..."
+               "run": "bazel build --platforms=@rules_go//go/toolchain:darwin_arm64 //..."
             },
             {
                "name": "darwin_arm64: copy bb_noop_worker",
-               "run": "rm -f bb_noop_worker && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:darwin_arm64 //cmd/bb_noop_worker $(pwd)/bb_noop_worker"
+               "run": "rm -f bb_noop_worker && bazel run --run_under cp --platforms=@rules_go//go/toolchain:darwin_arm64 //cmd/bb_noop_worker $(pwd)/bb_noop_worker"
             },
             {
                "name": "darwin_arm64: upload bb_noop_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_noop_worker.darwin_arm64",
                   "path": "bb_noop_worker"
@@ -509,11 +509,11 @@
             },
             {
                "name": "darwin_arm64: copy bb_runner",
-               "run": "rm -f bb_runner && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:darwin_arm64 //cmd/bb_runner $(pwd)/bb_runner"
+               "run": "rm -f bb_runner && bazel run --run_under cp --platforms=@rules_go//go/toolchain:darwin_arm64 //cmd/bb_runner $(pwd)/bb_runner"
             },
             {
                "name": "darwin_arm64: upload bb_runner",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_runner.darwin_arm64",
                   "path": "bb_runner"
@@ -521,11 +521,11 @@
             },
             {
                "name": "darwin_arm64: copy bb_scheduler",
-               "run": "rm -f bb_scheduler && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:darwin_arm64 //cmd/bb_scheduler $(pwd)/bb_scheduler"
+               "run": "rm -f bb_scheduler && bazel run --run_under cp --platforms=@rules_go//go/toolchain:darwin_arm64 //cmd/bb_scheduler $(pwd)/bb_scheduler"
             },
             {
                "name": "darwin_arm64: upload bb_scheduler",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_scheduler.darwin_arm64",
                   "path": "bb_scheduler"
@@ -533,11 +533,11 @@
             },
             {
                "name": "darwin_arm64: copy bb_virtual_tmp",
-               "run": "rm -f bb_virtual_tmp && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:darwin_arm64 //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp"
+               "run": "rm -f bb_virtual_tmp && bazel run --run_under cp --platforms=@rules_go//go/toolchain:darwin_arm64 //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp"
             },
             {
                "name": "darwin_arm64: upload bb_virtual_tmp",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_virtual_tmp.darwin_arm64",
                   "path": "bb_virtual_tmp"
@@ -545,11 +545,11 @@
             },
             {
                "name": "darwin_arm64: copy bb_worker",
-               "run": "rm -f bb_worker && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:darwin_arm64 //cmd/bb_worker $(pwd)/bb_worker"
+               "run": "rm -f bb_worker && bazel run --run_under cp --platforms=@rules_go//go/toolchain:darwin_arm64 //cmd/bb_worker $(pwd)/bb_worker"
             },
             {
                "name": "darwin_arm64: upload bb_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_worker.darwin_arm64",
                   "path": "bb_worker"
@@ -557,11 +557,11 @@
             },
             {
                "name": "darwin_arm64: copy fake_python",
-               "run": "rm -f fake_python && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:darwin_arm64 //cmd/fake_python $(pwd)/fake_python"
+               "run": "rm -f fake_python && bazel run --run_under cp --platforms=@rules_go//go/toolchain:darwin_arm64 //cmd/fake_python $(pwd)/fake_python"
             },
             {
                "name": "darwin_arm64: upload fake_python",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_python.darwin_arm64",
                   "path": "fake_python"
@@ -569,11 +569,11 @@
             },
             {
                "name": "darwin_arm64: copy fake_xcrun",
-               "run": "rm -f fake_xcrun && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:darwin_arm64 //cmd/fake_xcrun $(pwd)/fake_xcrun"
+               "run": "rm -f fake_xcrun && bazel run --run_under cp --platforms=@rules_go//go/toolchain:darwin_arm64 //cmd/fake_xcrun $(pwd)/fake_xcrun"
             },
             {
                "name": "darwin_arm64: upload fake_xcrun",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_xcrun.darwin_arm64",
                   "path": "fake_xcrun"
@@ -581,15 +581,15 @@
             },
             {
                "name": "freebsd_amd64: build and test",
-               "run": "bazel build --platforms=@io_bazel_rules_go//go/toolchain:freebsd_amd64 //cmd/bb_noop_worker //cmd/bb_runner //cmd/bb_scheduler //cmd/bb_virtual_tmp //cmd/bb_worker //cmd/fake_python //cmd/fake_xcrun"
+               "run": "bazel build --platforms=@rules_go//go/toolchain:freebsd_amd64 //cmd/bb_noop_worker //cmd/bb_runner //cmd/bb_scheduler //cmd/bb_virtual_tmp //cmd/bb_worker //cmd/fake_python //cmd/fake_xcrun"
             },
             {
                "name": "freebsd_amd64: copy bb_noop_worker",
-               "run": "rm -f bb_noop_worker && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:freebsd_amd64 //cmd/bb_noop_worker $(pwd)/bb_noop_worker"
+               "run": "rm -f bb_noop_worker && bazel run --run_under cp --platforms=@rules_go//go/toolchain:freebsd_amd64 //cmd/bb_noop_worker $(pwd)/bb_noop_worker"
             },
             {
                "name": "freebsd_amd64: upload bb_noop_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_noop_worker.freebsd_amd64",
                   "path": "bb_noop_worker"
@@ -597,11 +597,11 @@
             },
             {
                "name": "freebsd_amd64: copy bb_runner",
-               "run": "rm -f bb_runner && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:freebsd_amd64 //cmd/bb_runner $(pwd)/bb_runner"
+               "run": "rm -f bb_runner && bazel run --run_under cp --platforms=@rules_go//go/toolchain:freebsd_amd64 //cmd/bb_runner $(pwd)/bb_runner"
             },
             {
                "name": "freebsd_amd64: upload bb_runner",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_runner.freebsd_amd64",
                   "path": "bb_runner"
@@ -609,11 +609,11 @@
             },
             {
                "name": "freebsd_amd64: copy bb_scheduler",
-               "run": "rm -f bb_scheduler && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:freebsd_amd64 //cmd/bb_scheduler $(pwd)/bb_scheduler"
+               "run": "rm -f bb_scheduler && bazel run --run_under cp --platforms=@rules_go//go/toolchain:freebsd_amd64 //cmd/bb_scheduler $(pwd)/bb_scheduler"
             },
             {
                "name": "freebsd_amd64: upload bb_scheduler",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_scheduler.freebsd_amd64",
                   "path": "bb_scheduler"
@@ -621,11 +621,11 @@
             },
             {
                "name": "freebsd_amd64: copy bb_virtual_tmp",
-               "run": "rm -f bb_virtual_tmp && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:freebsd_amd64 //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp"
+               "run": "rm -f bb_virtual_tmp && bazel run --run_under cp --platforms=@rules_go//go/toolchain:freebsd_amd64 //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp"
             },
             {
                "name": "freebsd_amd64: upload bb_virtual_tmp",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_virtual_tmp.freebsd_amd64",
                   "path": "bb_virtual_tmp"
@@ -633,11 +633,11 @@
             },
             {
                "name": "freebsd_amd64: copy bb_worker",
-               "run": "rm -f bb_worker && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:freebsd_amd64 //cmd/bb_worker $(pwd)/bb_worker"
+               "run": "rm -f bb_worker && bazel run --run_under cp --platforms=@rules_go//go/toolchain:freebsd_amd64 //cmd/bb_worker $(pwd)/bb_worker"
             },
             {
                "name": "freebsd_amd64: upload bb_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_worker.freebsd_amd64",
                   "path": "bb_worker"
@@ -645,11 +645,11 @@
             },
             {
                "name": "freebsd_amd64: copy fake_python",
-               "run": "rm -f fake_python && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:freebsd_amd64 //cmd/fake_python $(pwd)/fake_python"
+               "run": "rm -f fake_python && bazel run --run_under cp --platforms=@rules_go//go/toolchain:freebsd_amd64 //cmd/fake_python $(pwd)/fake_python"
             },
             {
                "name": "freebsd_amd64: upload fake_python",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_python.freebsd_amd64",
                   "path": "fake_python"
@@ -657,11 +657,11 @@
             },
             {
                "name": "freebsd_amd64: copy fake_xcrun",
-               "run": "rm -f fake_xcrun && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:freebsd_amd64 //cmd/fake_xcrun $(pwd)/fake_xcrun"
+               "run": "rm -f fake_xcrun && bazel run --run_under cp --platforms=@rules_go//go/toolchain:freebsd_amd64 //cmd/fake_xcrun $(pwd)/fake_xcrun"
             },
             {
                "name": "freebsd_amd64: upload fake_xcrun",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_xcrun.freebsd_amd64",
                   "path": "fake_xcrun"
@@ -669,15 +669,15 @@
             },
             {
                "name": "windows_amd64: build and test",
-               "run": "bazel build --platforms=@io_bazel_rules_go//go/toolchain:windows_amd64 //..."
+               "run": "bazel build --platforms=@rules_go//go/toolchain:windows_amd64 //..."
             },
             {
                "name": "windows_amd64: copy bb_noop_worker",
-               "run": "rm -f bb_noop_worker.exe && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:windows_amd64 //cmd/bb_noop_worker $(pwd)/bb_noop_worker.exe"
+               "run": "rm -f bb_noop_worker.exe && bazel run --run_under cp --platforms=@rules_go//go/toolchain:windows_amd64 //cmd/bb_noop_worker $(pwd)/bb_noop_worker.exe"
             },
             {
                "name": "windows_amd64: upload bb_noop_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_noop_worker.windows_amd64",
                   "path": "bb_noop_worker.exe"
@@ -685,11 +685,11 @@
             },
             {
                "name": "windows_amd64: copy bb_runner",
-               "run": "rm -f bb_runner.exe && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:windows_amd64 //cmd/bb_runner $(pwd)/bb_runner.exe"
+               "run": "rm -f bb_runner.exe && bazel run --run_under cp --platforms=@rules_go//go/toolchain:windows_amd64 //cmd/bb_runner $(pwd)/bb_runner.exe"
             },
             {
                "name": "windows_amd64: upload bb_runner",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_runner.windows_amd64",
                   "path": "bb_runner.exe"
@@ -697,11 +697,11 @@
             },
             {
                "name": "windows_amd64: copy bb_scheduler",
-               "run": "rm -f bb_scheduler.exe && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:windows_amd64 //cmd/bb_scheduler $(pwd)/bb_scheduler.exe"
+               "run": "rm -f bb_scheduler.exe && bazel run --run_under cp --platforms=@rules_go//go/toolchain:windows_amd64 //cmd/bb_scheduler $(pwd)/bb_scheduler.exe"
             },
             {
                "name": "windows_amd64: upload bb_scheduler",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_scheduler.windows_amd64",
                   "path": "bb_scheduler.exe"
@@ -709,11 +709,11 @@
             },
             {
                "name": "windows_amd64: copy bb_virtual_tmp",
-               "run": "rm -f bb_virtual_tmp.exe && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:windows_amd64 //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp.exe"
+               "run": "rm -f bb_virtual_tmp.exe && bazel run --run_under cp --platforms=@rules_go//go/toolchain:windows_amd64 //cmd/bb_virtual_tmp $(pwd)/bb_virtual_tmp.exe"
             },
             {
                "name": "windows_amd64: upload bb_virtual_tmp",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_virtual_tmp.windows_amd64",
                   "path": "bb_virtual_tmp.exe"
@@ -721,11 +721,11 @@
             },
             {
                "name": "windows_amd64: copy bb_worker",
-               "run": "rm -f bb_worker.exe && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:windows_amd64 //cmd/bb_worker $(pwd)/bb_worker.exe"
+               "run": "rm -f bb_worker.exe && bazel run --run_under cp --platforms=@rules_go//go/toolchain:windows_amd64 //cmd/bb_worker $(pwd)/bb_worker.exe"
             },
             {
                "name": "windows_amd64: upload bb_worker",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "bb_worker.windows_amd64",
                   "path": "bb_worker.exe"
@@ -733,11 +733,11 @@
             },
             {
                "name": "windows_amd64: copy fake_python",
-               "run": "rm -f fake_python.exe && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:windows_amd64 //cmd/fake_python $(pwd)/fake_python.exe"
+               "run": "rm -f fake_python.exe && bazel run --run_under cp --platforms=@rules_go//go/toolchain:windows_amd64 //cmd/fake_python $(pwd)/fake_python.exe"
             },
             {
                "name": "windows_amd64: upload fake_python",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_python.windows_amd64",
                   "path": "fake_python.exe"
@@ -745,11 +745,11 @@
             },
             {
                "name": "windows_amd64: copy fake_xcrun",
-               "run": "rm -f fake_xcrun.exe && bazel run --run_under cp --platforms=@io_bazel_rules_go//go/toolchain:windows_amd64 //cmd/fake_xcrun $(pwd)/fake_xcrun.exe"
+               "run": "rm -f fake_xcrun.exe && bazel run --run_under cp --platforms=@rules_go//go/toolchain:windows_amd64 //cmd/fake_xcrun $(pwd)/fake_xcrun.exe"
             },
             {
                "name": "windows_amd64: upload fake_xcrun",
-               "uses": "actions/upload-artifact@v2-preview",
+               "uses": "actions/upload-artifact@v4",
                "with": {
                   "name": "fake_xcrun.windows_amd64",
                   "path": "fake_xcrun.exe"

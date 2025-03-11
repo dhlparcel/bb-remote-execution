@@ -11,19 +11,20 @@ import (
 	"github.com/buildbarn/bb-remote-execution/pkg/runner"
 	"github.com/buildbarn/bb-storage/pkg/filesystem/path"
 	"github.com/buildbarn/bb-storage/pkg/testutil"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
+
+	"go.uber.org/mock/gomock"
 )
 
 func TestTemporaryDirectorySymlinkingRunnerRun(t *testing.T) {
 	ctrl, ctx := gomock.WithContext(context.Background(), t)
 
 	buildDirectory, scopeWalker := path.EmptyBuilder.Join(path.VoidScopeWalker)
-	require.NoError(t, path.Resolve("/worker/build", scopeWalker))
+	require.NoError(t, path.Resolve(path.UNIXFormat.NewParser("/worker/build"), scopeWalker))
 
 	t.Run("InvalidTemporaryDirectory", func(t *testing.T) {
 		// The temporary directory path provided by bb_worker is
@@ -96,7 +97,7 @@ func TestTemporaryDirectorySymlinkingRunnerCheckReadiness(t *testing.T) {
 	ctrl, ctx := gomock.WithContext(context.Background(), t)
 
 	buildDirectory, scopeWalker := path.EmptyBuilder.Join(path.VoidScopeWalker)
-	require.NoError(t, path.Resolve("/worker/build", scopeWalker))
+	require.NoError(t, path.Resolve(path.UNIXFormat.NewParser("/worker/build"), scopeWalker))
 
 	t.Run("InvalidSymlinkPath", func(t *testing.T) {
 		// Readiness checks should fail in case the path at
@@ -104,7 +105,7 @@ func TestTemporaryDirectorySymlinkingRunnerCheckReadiness(t *testing.T) {
 		baseRunner := mock.NewMockRunnerServer(ctrl)
 		runner := runner.NewTemporaryDirectorySymlinkingRunner(baseRunner, "/", buildDirectory)
 
-		_, err := runner.CheckReadiness(ctx, &emptypb.Empty{})
+		_, err := runner.CheckReadiness(ctx, &runner_pb.CheckReadinessRequest{})
 		testutil.RequirePrefixedStatus(t, status.Error(codes.Internal, "Failed to remove symbolic link \"/\": "), err)
 	})
 
@@ -140,9 +141,10 @@ func TestTemporaryDirectorySymlinkingRunnerCheckReadiness(t *testing.T) {
 
 				// Concurrent readiness check calls
 				// should still be forwarded.
-				baseRunner.EXPECT().CheckReadiness(ctx, testutil.EqProto(t, &emptypb.Empty{})).Return(&emptypb.Empty{}, nil)
+				baseRunner.EXPECT().CheckReadiness(ctx, testutil.EqProto(t, &runner_pb.CheckReadinessRequest{})).
+					Return(&emptypb.Empty{}, nil)
 
-				_, err = runner.CheckReadiness(ctx, &emptypb.Empty{})
+				_, err = runner.CheckReadiness(ctx, &runner_pb.CheckReadinessRequest{})
 				require.NoError(t, err)
 
 				// The symlink should not get altered in
@@ -163,11 +165,12 @@ func TestTemporaryDirectorySymlinkingRunnerCheckReadiness(t *testing.T) {
 		// should cause the symbolic link to be created for
 		// testing purposes.
 		baseRunner := mock.NewMockRunnerServer(ctrl)
-		baseRunner.EXPECT().CheckReadiness(ctx, testutil.EqProto(t, &emptypb.Empty{})).Return(&emptypb.Empty{}, nil)
+		baseRunner.EXPECT().CheckReadiness(ctx, testutil.EqProto(t, &runner_pb.CheckReadinessRequest{})).
+			Return(&emptypb.Empty{}, nil)
 		symlinkPath := filepath.Join(t.TempDir(), "symlink")
 		runner := runner.NewTemporaryDirectorySymlinkingRunner(baseRunner, symlinkPath, buildDirectory)
 
-		_, err := runner.CheckReadiness(ctx, &emptypb.Empty{})
+		_, err := runner.CheckReadiness(ctx, &runner_pb.CheckReadinessRequest{})
 		require.NoError(t, err)
 
 		symlinkTarget, err := os.Readlink(symlinkPath)
